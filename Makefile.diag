@@ -1,0 +1,83 @@
+#---------------------------------------------------------------------------------
+# torfoil-diag — diagnostic autonome, console texte, sans SDL ni polices système.
+#
+# Existe pour une raison précise : le .nro complet dépend de SDL2 et de pl:u, et
+# un émulateur peut échouer là-dedans sans que le moteur soit en cause. Cette
+# variante permet d'exécuter réellement les appels Horizon qu'aucun test sur PC
+# ne couvre.
+#---------------------------------------------------------------------------------
+.SUFFIXES:
+
+ifeq ($(strip $(DEVKITPRO)),)
+$(error "DEVKITPRO n'est pas défini")
+endif
+
+TOPDIR ?= $(CURDIR)
+include $(DEVKITPRO)/libnx/switch_rules
+
+APP_TITLE   := Torfoil Diagnostic
+APP_AUTHOR  := tensorcrush
+APP_VERSION := 0.1.0
+
+TARGET   := torfoil-diag
+BUILD    := build-diag
+SOURCES  := tools source/bt source/net source/net/wg source/util source/install source/diag
+INCLUDES := include third_party/lwip/src/include
+DATA     :=
+
+ARCH := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE
+
+CFLAGS := -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
+          -O2 -ffunction-sections -fdata-sections $(ARCH) $(DEFINES)
+CFLAGS += $(INCLUDE) -D__SWITCH__
+CXXFLAGS := $(CFLAGS) -fno-rtti -std=gnu++17
+
+ASFLAGS  := -g $(ARCH)
+LDFLAGS   = -specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+
+LIBS := -lmbedtls -lmbedx509 -lmbedcrypto -lz -lm -lnx
+LIBDIRS := $(PORTLIBS) $(LIBNX)
+
+ifneq ($(BUILD),$(notdir $(CURDIR)))
+
+export OUTPUT := $(CURDIR)/$(TARGET)
+export TOPDIR := $(CURDIR)
+export VPATH := $(foreach dir,$(SOURCES),$(CURDIR)/$(dir))
+export DEPSDIR := $(CURDIR)/$(BUILD)
+
+CFILES   := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
+CPPFILES := $(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
+
+export LD := $(CXX)
+export OFILES_SRC := $(CPPFILES:.cpp=.o) $(CFILES:.c=.o)
+export OFILES     := $(OFILES_SRC)
+export HFILES_BIN :=
+
+export INCLUDE := $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
+                  $(foreach dir,$(LIBDIRS),-I$(dir)/include) \
+                  -I$(CURDIR)/$(BUILD)
+export LIBPATHS := $(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+
+export NACPFLAGS := --create "$(APP_TITLE)" "$(APP_AUTHOR)" "$(APP_VERSION)" $(CURDIR)/$(TARGET).nacp
+export NROFLAGS := --nacp=$(CURDIR)/$(TARGET).nacp
+
+.PHONY: $(BUILD) clean all
+all: $(BUILD)
+
+$(BUILD):
+	@[ -d $@ ] || mkdir -p $@
+	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile.diag
+
+clean:
+	@rm -fr $(BUILD) $(TARGET).nro $(TARGET).nacp $(TARGET).elf
+
+else
+.PHONY: all
+DEPENDS := $(OFILES:.o=.d)
+
+all: $(OUTPUT).nro
+$(OUTPUT).nro: $(OUTPUT).elf $(OUTPUT).nacp
+$(OUTPUT).elf: $(OFILES)
+
+-include $(DEPENDS)
+endif

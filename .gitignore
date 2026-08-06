@@ -1,0 +1,21 @@
+# Produits de compilation
+build/
+*.nro
+*.nacp
+*.elf
+*.map
+*.lst
+
+# Clés et secrets — ne doivent jamais partir sur un dépôt
+*.keys
+prod.keys
+title.keys
+vpn.cfg
+
+# Fichiers de travail
+*.torrent
+*.log
+downloads/
+
+# Notes de reprise locales, jamais publiees
+HANDOFF.md

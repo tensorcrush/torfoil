@@ -1,0 +1,1370 @@
+// Tests exécutables sur PC.
+//
+// Une bonne partie du projet ne dépend ni de libnx ni du matériel : parsing,
+// sélection de pièces, et surtout toute la crypto WireGuard. Ces morceaux-là se
+// compilent avec g++ et se confrontent aux vecteurs officiels — c'est la seule
+// vérification réelle possible sans console sous la main.
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "bt/bencode.hpp"
+#include "bt/magnet.hpp"
+#include "bt/metainfo.hpp"
+#include "bt/piece_picker.hpp"
+#include "bt/storage.hpp"
+#include <sys/resource.h>
+
+#include <csignal>
+
+#include <mbedtls/aes.h>
+#include <mbedtls/sha256.h>
+
+#include "install/archive.hpp"
+#include "install/installer.hpp"
+#include "install/keys.hpp"
+#include "install/nca.hpp"
+#include "net/wg/blake2s.h"
+#include "net/wg/chacha20poly1305.h"
+#include "net/wg/wireguard.hpp"
+#include "net/wg/x25519.h"
+#include "util/bytes.hpp"
+#include "util/sha1.hpp"
+
+namespace {
+
+int g_pass = 0;
+int g_fail = 0;
+const char* g_section = "";
+
+void section(const char* name) {
+    g_section = name;
+    std::printf("\n\033[1;36m%s\033[0m\n", name);
+}
+
+void check(bool ok, const std::string& label) {
+    if (ok) {
+        ++g_pass;
+        std::printf("  \033[32m✓\033[0m %s\n", label.c_str());
+    } else {
+        ++g_fail;
+        std::printf("  \033[31m✗ %s\033[0m\n", label.c_str());
+    }
+}
+
+void check_hex(const std::vector<uint8_t>& actual, const std::string& expected_hex,
+               const std::string& label) {
+    const std::string got = util::to_hex(actual.data(), actual.size());
+    check(got == expected_hex, label);
+    if (got != expected_hex) {
+        std::printf("      attendu : %s\n      obtenu  : %s\n", expected_hex.c_str(),
+                    got.c_str());
+    }
+}
+
+std::vector<uint8_t> unhex(const std::string& hex) {
+    std::vector<uint8_t> out(hex.size() / 2);
+    util::from_hex(hex, out.data(), out.size());
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+
+void test_sha1() {
+    section("SHA-1");
+    check(util::to_hex(util::Sha1::of(std::string("abc"))) ==
+              "a9993e364706816aba3e25717850c26c9cd0d89d",
+          "\"abc\"");
+    check(util::to_hex(util::Sha1::of(std::string(""))) ==
+              "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+          "chaîne vide");
+    check(util::to_hex(util::Sha1::of(std::string(1000, 'a'))) ==
+              "291e9a6c66994949b57ba5e650361e98fc36b1ba",
+          "1000 × 'a' (multi-blocs)");
+    check(util::to_hex(util::Sha1::of(std::string(
+              "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"))) ==
+              "84983e441c3bd26ebaae4aa1f95129e5e54670f1",
+          "vecteur FIPS 180-2");
+}
+
+void test_bencode() {
+    section("bencode");
+    std::string err;
+
+    const std::string sample = "d3:cow3:moo4:spam4:eggse";
+    bt::Value v;
+    check(bt::bdecode(sample, v, &err), "décodage");
+    check(v.str_or("cow", "") == "moo", "lecture de clé");
+    check(bt::bencode(v) == sample, "aller-retour identique");
+
+    bt::Value nested;
+    const std::string with_info = "d4:infod6:lengthi42e4:name3:abcee";
+    check(bt::bdecode(with_info, nested, &err), "dictionnaire imbriqué");
+    const bt::Value* info = nested.find_dict("info");
+    check(info != nullptr, "sous-dictionnaire trouvé");
+    if (info) {
+        const std::string raw = with_info.substr(info->raw_begin, info->raw_end - info->raw_begin);
+        check(raw == "d6:lengthi42e4:name3:abce", "étendue brute exacte (base de l'info_hash)");
+    }
+
+    bt::Value bad;
+    check(!bt::bdecode("i03e", bad, &err), "rejet du zéro en tête");
+    check(!bt::bdecode("i-0e", bad, &err), "rejet de -0");
+    check(!bt::bdecode("5:abc", bad, &err), "rejet chaîne tronquée");
+    check(!bt::bdecode("d1:ai1e", bad, &err), "rejet dictionnaire non fermé");
+    check(!bt::bdecode("di1ei2ee", bad, &err), "rejet clé non textuelle");
+}
+
+void test_torrent() {
+    section("metainfo");
+    std::string err;
+
+    // Torrent mono-fichier minimal : 3 pièces de 16 octets, 40 octets au total.
+    std::string pieces;
+    for (int i = 0; i < 3; ++i) pieces.append(20, static_cast<char>('A' + i));
+
+    std::string torrent = "d8:announce18:udp://tracker:1337";
+    torrent += "4:infod6:lengthi40e4:name7:jeu.nsp12:piece lengthi16e6:pieces60:";
+    torrent += pieces;
+    torrent += "ee";
+
+    bt::MetaInfo meta;
+    check(bt::parse_torrent(torrent, meta, &err), "analyse d'un .torrent");
+    check(meta.total_size == 40, "taille totale");
+    check(meta.piece_count() == 3, "nombre de pièces");
+    check(meta.size_of_piece(0) == 16 && meta.size_of_piece(2) == 8, "dernière pièce plus courte");
+    check(meta.files.size() == 1 && meta.files[0].path == "jeu.nsp", "fichier unique");
+    check(meta.trackers.size() == 1, "tracker relevé");
+
+    // Cohérence taille/pièces : un torrent qui ment doit être rejeté.
+    std::string broken = torrent;
+    const size_t pos = broken.find("i40e");
+    broken.replace(pos, 4, "i99e");
+    bt::MetaInfo bad;
+    check(!bt::parse_torrent(broken, bad, &err), "rejet taille incohérente");
+}
+
+void test_magnet() {
+    section("magnet");
+    std::string err;
+
+    bt::MagnetLink hex_link;
+    check(bt::parse_magnet("magnet:?xt=urn:btih:c9e15763f722f23e98a29decdfae341b98d53056"
+                           "&dn=Test&tr=udp%3A%2F%2Ftr.example%3A1337%2Fannounce",
+                           hex_link, &err),
+          "lien hexadécimal");
+    check(util::to_hex(hex_link.info_hash) == "c9e15763f722f23e98a29decdfae341b98d53056",
+          "info_hash");
+    check(hex_link.trackers.size() == 1 &&
+              hex_link.trackers[0] == "udp://tr.example:1337/announce",
+          "tracker désencodé");
+
+    bt::MagnetLink b32;
+    check(bt::parse_magnet("magnet:?xt=urn:btih:ZHQVOY7XELZD5GFCTXWN7LRUDOMNKMCW", b32, &err),
+          "lien base32");
+    check(b32.info_hash == hex_link.info_hash, "base32 == hexadécimal");
+
+    bt::MagnetLink v2;
+    check(!bt::parse_magnet("magnet:?xt=urn:btmh:1220abcd", v2, &err), "rejet torrent v2");
+    check(!bt::parse_magnet("http://example.com", v2, &err), "rejet non-magnet");
+}
+
+void test_bitfield() {
+    section("bitfield");
+
+    bt::Bitfield bf;
+    bf.resize(12);
+    bf.set(0);
+    bf.set(11);
+    check(bf.get(0) && bf.get(11) && !bf.get(5), "set/get");
+    check(bf.count() == 2, "comptage");
+    bf.set(0, false);
+    check(bf.count() == 1, "décomptage");
+
+    const uint8_t good[2] = {0xff, 0xf0};
+    const uint8_t bad[2] = {0xff, 0xf1};
+    bt::Bitfield from_peer;
+    check(from_peer.from_bytes(good, 2, 12), "bitfield valide accepté");
+    check(from_peer.count() == 12 && from_peer.full(), "tout à 1");
+    check(!from_peer.from_bytes(bad, 2, 12), "bourrage non nul rejeté");
+    check(!from_peer.from_bytes(good, 1, 12), "longueur incorrecte rejetée");
+}
+
+void test_picker() {
+    section("piece picker");
+
+    bt::MetaInfo meta;
+    meta.piece_length = 32 * 1024;   // 2 blocs par pièce
+    meta.total_size = 4 * 32 * 1024;
+    meta.piece_hashes.resize(4);
+    meta.name = "t";
+    meta.single_file = true;
+
+    bt::PiecePicker picker;
+    picker.init(meta);
+
+    bt::Bitfield peer;
+    peer.resize(4);
+    for (uint32_t i = 0; i < 4; ++i) peer.set(i);
+    picker.peer_added(peer);
+
+    bt::BlockRequest picks[8];
+    const uint32_t got = picker.pick(peer, picks, 8, 1000);
+    check(got == 8, "8 blocs choisis (4 pièces × 2)");
+
+    // Aucun doublon hors mode « fin de partie ».
+    bool duplicate = false;
+    for (uint32_t i = 0; i < got && !duplicate; ++i) {
+        for (uint32_t j = i + 1; j < got; ++j) {
+            if (picks[i].piece == picks[j].piece && picks[i].offset == picks[j].offset) {
+                duplicate = true;
+                break;
+            }
+        }
+    }
+    check(!duplicate, "pas de bloc demandé deux fois");
+
+    const uint32_t again = picker.pick(peer, picks, 8, 1000);
+    check(again == 0, "plus rien à demander tant que rien n'est reçu");
+
+    check(picker.expire_requests(1000 + 60000, 45000) == 8, "expiration des requêtes");
+    check(picker.pick(peer, picks, 8, 120000) == 8, "blocs re-proposés après expiration");
+
+    // Réception complète d'une pièce.
+    const uint32_t piece = picks[0].piece;
+    check(!picker.on_block_received(piece, 0, 16384), "pièce incomplète après 1 bloc");
+    check(picker.on_block_received(piece, 16384, 16384), "pièce complète après 2 blocs");
+    picker.on_piece_verified(piece, true);
+    check(picker.have().get(piece), "pièce validée retenue");
+    check(picker.bytes_done() == 32 * 1024, "octets comptabilisés");
+
+    picker.on_piece_verified(picks[2].piece, false);
+    check(!picker.have().get(picks[2].piece), "pièce corrompue non retenue");
+}
+
+// ---------------------------------------------------------------------------
+// Crypto WireGuard — vecteurs officiels
+// ---------------------------------------------------------------------------
+
+void test_blake2s() {
+    section("BLAKE2s (RFC 7693)");
+
+    std::vector<uint8_t> out(32);
+    blake2s(out.data(), 32, nullptr, 0, "abc", 3);
+    check_hex(out, "508c5e8c327c14e2e1a72ba34eeb452f37458b209ed63a294d999b4c86675982",
+              "BLAKE2s-256(\"abc\")");
+
+    blake2s(out.data(), 32, nullptr, 0, "", 0);
+    check_hex(out, "69217a3079908094e11121d042354a7c1f55b6482ca1a51e1b250dfd1ed0eef9",
+              "BLAKE2s-256(\"\")");
+
+    // Message plus long qu'un bloc : vérifie la gestion du tampon interne.
+    const std::string long_msg(1000, 'a');
+    blake2s(out.data(), 32, nullptr, 0, long_msg.data(), long_msg.size());
+    const std::string got = util::to_hex(out.data(), out.size());
+    // Recalcul en alimentant octet par octet : les deux chemins doivent coïncider.
+    blake2s_state s;
+    blake2s_init(&s, 32);
+    for (char c : long_msg) blake2s_update(&s, &c, 1);
+    std::vector<uint8_t> streamed(32);
+    blake2s_final(&s, streamed.data());
+    check(got == util::to_hex(streamed.data(), streamed.size()),
+          "identique en un bloc et en flux octet par octet");
+
+    // HMAC : la clé longue doit être pré-hachée, pas tronquée.
+    uint8_t mac_short[32];
+    uint8_t mac_long[32];
+    const std::string key_long(100, 'k');
+    blake2s_hmac(mac_short, "cle", 3, "message", 7);
+    blake2s_hmac(mac_long, key_long.data(), key_long.size(), "message", 7);
+    check(std::memcmp(mac_short, mac_long, 32) != 0, "HMAC distingue les clés");
+}
+
+void test_chacha20() {
+    section("ChaCha20 (RFC 8439 §2.4.2)");
+
+    const auto key = unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    // Attention : le §2.4.2 utilise un nonce commençant par quatre octets nuls.
+    // Celui du §2.3.2 (00000009…) illustre la fonction de bloc, pas le
+    // chiffrement — les confondre donne un résultat parfaitement cohérent mais
+    // sans rapport avec le vecteur attendu.
+    const auto nonce = unhex("000000000000004a00000000");
+    const std::string plain =
+        "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the "
+        "future, sunscreen would be it.";
+
+    std::vector<uint8_t> cipher(plain.size());
+    chacha20_xor(cipher.data(), reinterpret_cast<const uint8_t*>(plain.data()), plain.size(),
+                 key.data(), nonce.data(), 1);
+
+    check_hex(cipher,
+              "6e2e359a2568f98041ba0728dd0d6981e97e7aec1d4360c20a27afccfd9fae0bf91b65c5524733ab"
+              "8f593dabcd62b3571639d624e65152ab8f530c359f0861d807ca0dbf500d6a6156a38e088a22b65e"
+              "52bc514d16ccf806818ce91ab77937365af90bbf74a35be6b40b8eedf2785e42874d",
+              "chiffrement");
+
+    // Déchiffrer = rechiffrer.
+    std::vector<uint8_t> back(plain.size());
+    chacha20_xor(back.data(), cipher.data(), cipher.size(), key.data(), nonce.data(), 1);
+    check(std::memcmp(back.data(), plain.data(), plain.size()) == 0, "involution");
+}
+
+void test_aead() {
+    section("ChaCha20-Poly1305 (RFC 8439 §2.8.2)");
+
+    const auto key = unhex("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f");
+    const auto nonce = unhex("070000004041424344454647");
+    const auto aad = unhex("50515253c0c1c2c3c4c5c6c7");
+    const std::string plain =
+        "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the "
+        "future, sunscreen would be it.";
+
+    std::vector<uint8_t> cipher(plain.size());
+    uint8_t tag[16];
+    chacha20poly1305_encrypt(cipher.data(), tag, reinterpret_cast<const uint8_t*>(plain.data()),
+                             plain.size(), aad.data(), aad.size(), key.data(), nonce.data());
+
+    check_hex(cipher,
+              "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca96712"
+              "82fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58"
+              "fab324e4fad675945585808b4831d7bc3ff4def08e4b7a9de576d26586cec64b6116",
+              "texte chiffré");
+
+    check_hex(std::vector<uint8_t>(tag, tag + 16), "1ae10b594f09e26a7e902ecbd0600691",
+              "étiquette d'authentification");
+
+    std::vector<uint8_t> back(plain.size());
+    check(chacha20poly1305_decrypt(back.data(), cipher.data(), cipher.size(), tag, aad.data(),
+                                   aad.size(), key.data(), nonce.data()) == 1,
+          "déchiffrement authentifié");
+    check(std::memcmp(back.data(), plain.data(), plain.size()) == 0, "clair restitué");
+
+    // Un octet modifié doit faire échouer l'authentification.
+    cipher[10] ^= 0x01;
+    check(chacha20poly1305_decrypt(back.data(), cipher.data(), cipher.size(), tag, aad.data(),
+                                   aad.size(), key.data(), nonce.data()) == 0,
+          "altération détectée");
+}
+
+void test_x25519() {
+    section("X25519 (RFC 7748)");
+
+    // §5.2 — multiplication scalaire brute
+    {
+        const auto scalar =
+            unhex("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4");
+        const auto point =
+            unhex("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c");
+        std::vector<uint8_t> out(32);
+        x25519_scalarmult(out.data(), scalar.data(), point.data());
+        check_hex(out, "c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552",
+                  "vecteur 1");
+    }
+    {
+        const auto scalar =
+            unhex("4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d");
+        const auto point =
+            unhex("e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493");
+        std::vector<uint8_t> out(32);
+        x25519_scalarmult(out.data(), scalar.data(), point.data());
+        check_hex(out, "95cbde9476e8907d7aade45cb4b873f88b595a68799fa152e6f8f7647aac7957",
+                  "vecteur 2");
+    }
+
+    // §6.1 — échange complet, c'est exactement ce que fait la poignée de main.
+    const auto alice_priv =
+        unhex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
+    const auto bob_priv =
+        unhex("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb");
+
+    std::vector<uint8_t> alice_pub(32);
+    std::vector<uint8_t> bob_pub(32);
+    x25519_public_key(alice_pub.data(), alice_priv.data());
+    x25519_public_key(bob_pub.data(), bob_priv.data());
+
+    check_hex(alice_pub, "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a",
+              "clé publique d'Alice");
+    check_hex(bob_pub, "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f",
+              "clé publique de Bob");
+
+    std::vector<uint8_t> shared_a(32);
+    std::vector<uint8_t> shared_b(32);
+    x25519_scalarmult(shared_a.data(), alice_priv.data(), bob_pub.data());
+    x25519_scalarmult(shared_b.data(), bob_priv.data(), alice_pub.data());
+
+    check_hex(shared_a, "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742",
+              "secret partagé (côté Alice)");
+    check(shared_a == shared_b, "les deux côtés obtiennent le même secret");
+
+    // Point d'ordre faible : le secret doit être nul et donc rejeté.
+    const auto low_order = unhex("0000000000000000000000000000000000000000000000000000000000000000");
+    std::vector<uint8_t> degenerate(32);
+    x25519_scalarmult(degenerate.data(), alice_priv.data(), low_order.data());
+    check(x25519_is_zero(degenerate.data()) == 1, "point dégénéré détecté");
+}
+
+void test_wireguard() {
+    section("WireGuard (Noise IKpsk2)");
+
+    // Constante du protocole : HASH("Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s").
+    // Si elle tombe juste, la construction et BLAKE2s sont bons tous les deux.
+    std::vector<uint8_t> ck(32);
+    wg::initial_chaining_key(ck.data());
+    check_hex(ck, "60e26daef327efc02ec335e2a025d2d016eb4206f87277f52d38d1988b78cd36",
+              "clé de chaînage initiale");
+
+    // Base64 : c'est sous cette forme que Mullvad échange les clés.
+    uint8_t key[32];
+    for (int i = 0; i < 32; ++i) key[i] = static_cast<uint8_t>(i * 7 + 1);
+    const std::string encoded = wg::key_to_base64(key);
+    uint8_t decoded[32];
+    check(encoded.size() == 44, "clé encodée sur 44 caractères");
+    check(wg::key_from_base64(encoded, decoded), "décodage base64");
+    check(std::memcmp(key, decoded, 32) == 0, "aller-retour base64");
+    check(!wg::key_from_base64("trop court", decoded), "rejet d'une clé mal formée");
+
+    // Poignée de main complète entre deux instances.
+    uint8_t server_priv[32], server_pub[32], client_priv[32], client_pub[32];
+    wg::generate_private_key(server_priv);
+    wg::derive_public_key(server_pub, server_priv);
+    wg::generate_private_key(client_priv);
+    wg::derive_public_key(client_pub, client_priv);
+
+    wg::Peer client;
+    wg::Peer server;
+    client.configure(client_priv, server_pub, nullptr);
+    server.configure(server_priv, client_pub, nullptr);
+
+    uint8_t initiation[wg::kInitiationSize];
+    check(client.make_initiation(initiation, 1000, 1700000000ULL * 1000000000ULL),
+          "message d'initiation produit");
+    check(initiation[0] == wg::kTypeInitiation, "type = 1");
+
+    check(server.consume_initiation_for_test(initiation, sizeof(initiation)),
+          "initiation acceptée par le serveur");
+
+    uint8_t response[wg::kResponseSize];
+    check(server.make_response_for_test(response), "réponse produite");
+    check(client.consume_response(response, sizeof(response), 2000),
+          "réponse acceptée par le client");
+    check(client.established() && server.established(), "tunnel établi des deux côtés");
+
+    // Transfert de données dans les deux sens.
+    uint8_t packet[100];
+    for (int i = 0; i < 100; ++i) packet[i] = static_cast<uint8_t>(i);
+
+    uint8_t wire[256];
+    const int sent = client.encapsulate(packet, sizeof(packet), wire, sizeof(wire), 3000);
+    check(sent == static_cast<int>(wg::kDataHeaderSize + sizeof(packet) + wg::kTagLen),
+          "taille du message chiffré");
+
+    uint8_t received[256];
+    const int got = server.decapsulate(wire, static_cast<size_t>(sent), received,
+                                       sizeof(received), 3000);
+    check(got == static_cast<int>(sizeof(packet)), "paquet déchiffré côté serveur");
+    check(std::memcmp(received, packet, sizeof(packet)) == 0, "contenu intact");
+
+    uint8_t wire_back[256];
+    const int sent_back =
+        server.encapsulate(packet, sizeof(packet), wire_back, sizeof(wire_back), 3100);
+    const int got_back = client.decapsulate(wire_back, static_cast<size_t>(sent_back), received,
+                                            sizeof(received), 3100);
+    check(got_back == static_cast<int>(sizeof(packet)), "sens retour");
+
+    // Rejeu du tout premier paquet (compteur 0) : doit être refusé.
+    check(server.decapsulate(wire, static_cast<size_t>(sent), received, sizeof(received),
+                             3200) == -1,
+          "rejeu du compteur 0 refusé");
+
+    // Altération d'un octet chiffré.
+    wire[wg::kDataHeaderSize + 5] ^= 0x01;
+    check(server.decapsulate(wire, static_cast<size_t>(sent), received, sizeof(received),
+                             3300) == -1,
+          "paquet altéré refusé");
+
+    // Un client configuré avec la mauvaise clé serveur ne doit pas aboutir.
+    wg::Peer wrong;
+    uint8_t other_priv[32], other_pub[32];
+    wg::generate_private_key(other_priv);
+    wg::derive_public_key(other_pub, other_priv);
+    wrong.configure(client_priv, other_pub, nullptr);
+
+    uint8_t bad_initiation[wg::kInitiationSize];
+    wrong.make_initiation(bad_initiation, 4000, 1700000000ULL * 1000000000ULL);
+
+    wg::Peer server2;
+    server2.configure(server_priv, client_pub, nullptr);
+    check(!server2.consume_initiation_for_test(bad_initiation, sizeof(bad_initiation)),
+          "initiation adressée à une autre clé refusée");
+}
+
+// ---------------------------------------------------------------------------
+// Stockage : le chemin qui a produit « écriture SD impossible » sur console.
+// ---------------------------------------------------------------------------
+
+// Fabrique un .torrent en mémoire : deux fichiers, pièces de 32 Ko.
+bt::MetaInfo make_test_meta(uint64_t f1, uint64_t f2, uint32_t piece_len,
+                            const std::vector<uint8_t>& content) {
+    bt::MetaInfo meta;
+    meta.name = "essai";
+    meta.single_file = false;
+    meta.piece_length = piece_len;
+    meta.total_size = f1 + f2;
+    meta.files.push_back(bt::FileEntry{"a.bin", f1, 0});
+    meta.files.push_back(bt::FileEntry{"b.bin", f2, f1});
+
+    const uint32_t pieces = static_cast<uint32_t>((meta.total_size + piece_len - 1) / piece_len);
+    for (uint32_t i = 0; i < pieces; ++i) {
+        const uint64_t begin = static_cast<uint64_t>(i) * piece_len;
+        const uint32_t size =
+            static_cast<uint32_t>(std::min<uint64_t>(piece_len, meta.total_size - begin));
+        util::Sha1 sha;
+        sha.update(content.data() + begin, size);
+        meta.piece_hashes.push_back(sha.digest());
+    }
+    std::memset(meta.info_hash.data(), 0xAB, meta.info_hash.size());
+    return meta;
+}
+
+void test_storage() {
+    section("Stockage");
+
+    const uint32_t piece_len = 32 * 1024;
+    const uint64_t f1 = 40 * 1024;  // coupe une pièce en plein milieu
+    const uint64_t f2 = 88 * 1024;
+
+    std::vector<uint8_t> content(f1 + f2);
+    for (size_t i = 0; i < content.size(); ++i) {
+        content[i] = static_cast<uint8_t>((i * 31 + 7) & 0xff);
+    }
+
+    const bt::MetaInfo meta = make_test_meta(f1, f2, piece_len, content);
+    const std::string dir = "/tmp/torfoil-storage-test";
+    std::string cmd = "rm -rf " + dir + " && mkdir -p " + dir;
+    check(std::system(cmd.c_str()) == 0, "dossier de test préparé");
+
+    bt::Storage storage;
+    std::string err;
+    check(storage.open(meta, dir, &err), "ouverture : " + (err.empty() ? "ok" : err));
+
+    // On écrit les blocs dans le désordre : c'est ce que font les vrais pairs,
+    // et c'est ce qui casse une écriture séquentielle naïve.
+    const uint32_t pieces = meta.piece_count();
+    const uint32_t block = 16 * 1024;
+
+    std::vector<std::pair<uint32_t, uint32_t>> order;
+    for (uint32_t p = 0; p < pieces; ++p) {
+        for (uint32_t off = 0; off < meta.size_of_piece(p); off += block) {
+            order.emplace_back(p, off);
+        }
+    }
+    // Inversion : dernier bloc en premier.
+    std::reverse(order.begin(), order.end());
+
+    bool writes_ok = true;
+    for (const auto& [p, off] : order) {
+        const uint64_t abs = static_cast<uint64_t>(p) * piece_len + off;
+        const uint32_t len =
+            std::min<uint32_t>(block, meta.size_of_piece(p) - off);
+        if (!storage.write_block(p, off, content.data() + abs, len, &err)) {
+            writes_ok = false;
+            break;
+        }
+    }
+    check(writes_ok, "écriture de tous les blocs dans le désordre");
+
+    bool verified = true;
+    for (uint32_t p = 0; p < pieces; ++p) {
+        if (!storage.verify_piece(p)) { verified = false; break; }
+        if (!storage.commit_piece(p, &err)) { verified = false; break; }
+    }
+    check(verified, "chaque pièce vérifiée puis écrite");
+
+    storage.close();
+
+    // Relecture depuis zéro : les octets sur le disque doivent être exacts, y
+    // compris à la frontière entre les deux fichiers.
+    bt::Storage reopened;
+    check(reopened.open(meta, dir, &err), "réouverture");
+
+    std::vector<bool> have;
+    reopened.scan_existing(have, nullptr);
+    const size_t good = std::count(have.begin(), have.end(), true);
+    check(good == pieces, "toutes les pièces relues et validées (" + std::to_string(good) + "/" +
+                              std::to_string(pieces) + ")");
+
+    // Une pièce corrompue doit être détectée, pas acceptée en silence.
+    std::vector<uint8_t> junk(block, 0x00);
+    check(reopened.write_block(0, 0, junk.data(), block, &err), "écriture d'un bloc erroné");
+    reopened.commit_piece(0, &err);
+    check(!reopened.verify_piece(0), "pièce corrompue rejetée");
+
+    // Écriture hors limites : refusée plutôt que silencieusement tronquée.
+    check(!reopened.write_block(pieces + 10, 0, junk.data(), block, &err),
+          "pièce hors limites refusée");
+    check(!reopened.write_block(0, piece_len - 16, junk.data(), block, &err),
+          "bloc débordant de la pièce refusé");
+
+    reopened.close();
+
+    // --- reprise sur un fichier déjà présent ---
+    //
+    // Le cas qui a fait échouer la console : les fichiers existaient déjà, créés
+    // par une version antérieure. Il faut vérifier qu'une réouverture les
+    // reconnaît comme réutilisables au lieu de repartir de zéro — ou, à
+    // l'inverse, qu'elle sait dire qu'elle a dû les recréer.
+    {
+        bt::Storage again;
+        check(again.open(meta, dir, &err), "troisième ouverture");
+        check(!again.created_fresh(), "fichiers existants reconnus (pas de re-création)");
+        check(!again.recreated(), "aucune recréation nécessaire ici");
+        again.close();
+    }
+
+    // Un dossier vidé doit au contraire être vu comme neuf : sans ça on
+    // relirait 35 Go pour rien au lancement suivant.
+    {
+        cmd = "rm -rf " + dir + " && mkdir -p " + dir;
+        (void)std::system(cmd.c_str());
+        bt::Storage fresh;
+        check(fresh.open(meta, dir, &err), "ouverture après effacement");
+        check(fresh.created_fresh(), "dossier vide reconnu comme neuf");
+        fresh.close();
+    }
+
+    cmd = "rm -rf " + dir;
+    (void)std::system(cmd.c_str());
+}
+
+// Reproduit la limite de FAT32 sur PC.
+//
+// Impossible d'avoir une carte FAT32 ici, mais on peut mettre le processus dans
+// la même situation : RLIMIT_FSIZE fait échouer toute écriture au-delà d'une
+// taille donnée, avec EFBIG — exactement l'erreur que renvoie FAT32 à 4 Go.
+// C'est donc bien le vrai chemin de code qui s'exécute, pas une simulation.
+void test_storage_size_limit() {
+    section("Refus du système de fichiers (comportement de FAT32)");
+
+    // On ne peut pas fabriquer une carte FAT32 ici, et RLIMIT_FSIZE n'est pas
+    // appliqué sous WSL. On simule donc le seul point qu'on ne maîtrise pas —
+    // la réponse du système de fichiers — et on éprouve tout le reste : la
+    // détection, la recréation, l'invalidation de la reprise, le message.
+    auto refuse_growth = [](const std::string&, uint64_t) { return false; };
+
+    const uint32_t piece_len = 32 * 1024;
+    const uint64_t f1 = 512 * 1024;  // deux fois la limite : impossible à écrire
+    const uint64_t f2 = 64 * 1024;
+
+    std::vector<uint8_t> content(f1 + f2, 0x5A);
+    const bt::MetaInfo meta = make_test_meta(f1, f2, piece_len, content);
+
+    const std::string dir = "/tmp/torfoil-limit-test";
+    std::string cmd = "rm -rf " + dir + " && mkdir -p " + dir;
+    (void)std::system(cmd.c_str());
+
+    // 1) Fichier absent : la création doit échouer proprement, en nommant la
+    //    cause, plutôt que de laisser découvrir le problème à 250 Ko.
+    {
+        bt::Storage storage;
+        storage.set_large_file_threshold(128 * 1024);
+        storage.set_growth_probe(refuse_growth);
+        std::string err;
+        const bool opened = storage.open(meta, dir, &err);
+        check(!opened, "fichier trop grand refusé dès l'ouverture");
+        check(!opened && err.find("FAT32") != std::string::npos,
+              "le message désigne la vraie cause : " + err);
+        check(!opened && !storage.recreated(),
+              "aucune recréation annoncée pour un fichier qui n'existait pas");
+    }
+
+    // 2) LE bug de la console : un fichier ordinaire existe déjà, hérité d'une
+    //    version antérieure. Il ne peut pas grandir — il faut le détecter, et
+    //    non pas repartir en se disant « il existe, tout va bien ».
+    {
+        cmd = "rm -rf " + dir + " && mkdir -p " + dir + "/essai";
+        (void)std::system(cmd.c_str());
+        const std::string victim = dir + "/essai/a.bin";
+        std::FILE* fp = std::fopen(victim.c_str(), "wb");
+        check(fp != nullptr, "fichier ordinaire préexistant créé");
+        if (fp) {
+            std::vector<uint8_t> some(100 * 1024, 0x11);
+            std::fwrite(some.data(), 1, some.size(), fp);
+            std::fclose(fp);
+        }
+
+        bt::Storage storage;
+        storage.set_large_file_threshold(128 * 1024);
+        storage.set_growth_probe(refuse_growth);
+        std::string err;
+        const bool opened = storage.open(meta, dir, &err);
+        check(!opened, "fichier préexistant incapable de grandir : détecté");
+        check(!opened && err.find("FAT32") != std::string::npos,
+              "cause correctement rapportée pour un fichier déjà présent");
+        // LE point du correctif : le fichier existant ne doit PAS être accepté
+        // tel quel. Avant, on sortait en se disant « il existe, tout va bien »,
+        // et la console échouait ensuite à chaque écriture au-delà de 4 Go.
+        check(storage.recreated(), "recréation déclenchée pour un fichier inadapté");
+    }
+
+    // 2 bis) Un fichier existant qui PEUT grandir doit être conservé tel quel :
+    //        la détection ne doit pas devenir une destruction systématique.
+    {
+        cmd = "rm -rf " + dir + " && mkdir -p " + dir + "/essai";
+        (void)std::system(cmd.c_str());
+        std::FILE* fp = std::fopen((dir + "/essai/a.bin").c_str(), "wb");
+        if (fp) {
+            std::vector<uint8_t> some(100 * 1024, 0x22);
+            std::fwrite(some.data(), 1, some.size(), fp);
+            std::fclose(fp);
+        }
+
+        bt::Storage storage;
+        storage.set_large_file_threshold(128 * 1024);
+        storage.set_growth_probe([](const std::string&, uint64_t) { return true; });
+        std::string err;
+        check(storage.open(meta, dir, &err), "fichier existant capable de grandir : accepté");
+        check(!storage.recreated(), "aucune destruction inutile");
+        check(!storage.created_fresh(), "données existantes reconnues");
+        storage.close();
+    }
+
+    // 3) Sous la limite, tout doit se dérouler normalement — la protection ne
+    //    doit pas devenir un refus généralisé.
+    {
+        cmd = "rm -rf " + dir + " && mkdir -p " + dir;
+        (void)std::system(cmd.c_str());
+
+        const uint64_t s1 = 96 * 1024;
+        const uint64_t s2 = 32 * 1024;
+        std::vector<uint8_t> small(s1 + s2);
+        for (size_t i = 0; i < small.size(); ++i) small[i] = static_cast<uint8_t>(i & 0xff);
+        const bt::MetaInfo tiny = make_test_meta(s1, s2, piece_len, small);
+
+        bt::Storage storage;
+        storage.set_large_file_threshold(128 * 1024);
+        std::string err;
+        check(storage.open(tiny, dir, &err), "fichiers sous la limite acceptés");
+
+        bool ok = true;
+        for (uint32_t p = 0; p < tiny.piece_count(); ++p) {
+            const uint32_t psize = tiny.size_of_piece(p);
+            const uint64_t abs = static_cast<uint64_t>(p) * piece_len;
+            if (!storage.write_block(p, 0, small.data() + abs, psize, &err) ||
+                !storage.verify_piece(p) || !storage.commit_piece(p, &err)) {
+                ok = false;
+                break;
+            }
+        }
+        check(ok, "écriture et vérification normales sous la limite");
+        storage.close();
+    }
+
+    cmd = "rm -rf " + dir;
+    (void)std::system(cmd.c_str());
+}
+
+// La géométrie exacte du torrent qui a posé problème : deux fichiers dont la
+// frontière tombe EN PLEIN MILIEU d'une pièce. C'est le cas qui casse une
+// écriture naïve — le bloc reçu doit être coupé et réparti sur deux fichiers,
+// et la vérification SHA-1 doit ensuite le relire à cheval sur les deux.
+void test_storage_multifile() {
+    section("Stockage multi-fichiers (frontière au milieu d'une pièce)");
+
+    const uint32_t piece_len = 64 * 1024;
+    // 5,5 pièces puis 3,5 pièces : aucune frontière alignée, comme dans le
+    // torrent réel où le premier fichier fait 11794,05 pièces.
+    const uint64_t f1 = piece_len * 5 + piece_len / 2;
+    const uint64_t f2 = piece_len * 3 + piece_len / 2;
+
+    std::vector<uint8_t> content(f1 + f2);
+    for (size_t i = 0; i < content.size(); ++i) {
+        content[i] = static_cast<uint8_t>((i * 7 + i / 251) & 0xff);
+    }
+
+    const bt::MetaInfo meta = make_test_meta(f1, f2, piece_len, content);
+    const std::string dir = "/tmp/torfoil-multifile-test";
+    std::string cmd = "rm -rf " + dir + " && mkdir -p " + dir;
+    (void)std::system(cmd.c_str());
+
+    bt::Storage storage;
+    std::string err;
+    check(storage.open(meta, dir, &err), "ouverture : " + (err.empty() ? "ok" : err));
+
+    const uint32_t pieces = meta.piece_count();
+    check(pieces == 9, "9 pièces (" + std::to_string(pieces) + ")");
+
+    // La pièce 5 chevauche les deux fichiers : c'est elle qu'on surveille.
+    const uint32_t straddling = static_cast<uint32_t>(f1 / piece_len);
+    check(static_cast<uint64_t>(straddling) * piece_len < f1 &&
+              static_cast<uint64_t>(straddling + 1) * piece_len > f1,
+          "la pièce " + std::to_string(straddling) + " est bien à cheval");
+
+    const uint32_t block = 16 * 1024;
+    bool writes_ok = true;
+    for (uint32_t p = 0; p < pieces && writes_ok; ++p) {
+        const uint32_t psize = meta.size_of_piece(p);
+        // Ordre inversé dans chaque pièce, pour ne rien devoir à la chance.
+        for (int32_t off = static_cast<int32_t>(((psize - 1) / block) * block); off >= 0;
+             off -= static_cast<int32_t>(block)) {
+            const uint32_t o = static_cast<uint32_t>(off);
+            const uint32_t len = std::min<uint32_t>(block, psize - o);
+            const uint64_t abs = static_cast<uint64_t>(p) * piece_len + o;
+            if (!storage.write_block(p, o, content.data() + abs, len, &err)) {
+                writes_ok = false;
+                break;
+            }
+        }
+    }
+    check(writes_ok, "écriture de toutes les pièces : " + (err.empty() ? "ok" : err));
+
+    bool all_valid = true;
+    for (uint32_t p = 0; p < pieces; ++p) {
+        if (!storage.verify_piece(p) || !storage.commit_piece(p, &err)) {
+            all_valid = false;
+            check(false, "pièce " + std::to_string(p) + " invalide : " + err);
+            break;
+        }
+    }
+    check(all_valid, "toutes les pièces vérifiées, y compris celle à cheval");
+    storage.close();
+
+    // Le contenu réellement écrit doit correspondre octet pour octet — c'est la
+    // seule preuve que la répartition sur deux fichiers est exacte.
+    auto slurp = [](const std::string& path) {
+        std::string out;
+        if (std::FILE* fp = std::fopen(path.c_str(), "rb")) {
+            char buf[4096];
+            size_t n;
+            while ((n = std::fread(buf, 1, sizeof(buf), fp)) > 0) out.append(buf, n);
+            std::fclose(fp);
+        }
+        return out;
+    };
+
+    const std::string a = slurp(dir + "/essai/a.bin");
+    const std::string b = slurp(dir + "/essai/b.bin");
+    check(a.size() == f1, "premier fichier à la bonne taille (" + std::to_string(a.size()) + ")");
+    check(b.size() == f2, "second fichier à la bonne taille (" + std::to_string(b.size()) + ")");
+    check(std::memcmp(a.data(), content.data(), a.size()) == 0,
+          "octets du premier fichier exacts");
+    check(b.size() == f2 && std::memcmp(b.data(), content.data() + f1, b.size()) == 0,
+          "octets du second fichier exacts (rien de décalé à la frontière)");
+
+    cmd = "rm -rf " + dir;
+    (void)std::system(cmd.c_str());
+}
+
+// ---------------------------------------------------------------------------
+// Conteneur PFS0 : c'est l'intérieur d'un NSP. Tout l'installateur en dépend.
+// ---------------------------------------------------------------------------
+
+void put_le32(std::vector<uint8_t>& v, uint32_t x) {
+    for (int i = 0; i < 4; ++i) v.push_back(static_cast<uint8_t>((x >> (8 * i)) & 0xff));
+}
+void put_le64(std::vector<uint8_t>& v, uint64_t x) {
+    for (int i = 0; i < 8; ++i) v.push_back(static_cast<uint8_t>((x >> (8 * i)) & 0xff));
+}
+
+// Fabrique un PFS0 valide contenant les fichiers donnés.
+std::vector<uint8_t> build_pfs0(const std::vector<std::pair<std::string, std::string>>& files) {
+    std::vector<uint8_t> names;
+    std::vector<uint32_t> name_offsets;
+    for (const auto& f : files) {
+        name_offsets.push_back(static_cast<uint32_t>(names.size()));
+        names.insert(names.end(), f.first.begin(), f.first.end());
+        names.push_back('\0');
+    }
+    while (names.size() % 0x10 != 0) names.push_back('\0');
+
+    std::vector<uint8_t> out;
+    out.push_back('P'); out.push_back('F'); out.push_back('S'); out.push_back('0');
+    put_le32(out, static_cast<uint32_t>(files.size()));
+    put_le32(out, static_cast<uint32_t>(names.size()));
+    put_le32(out, 0);  // réservé
+
+    uint64_t data_offset = 0;
+    for (size_t i = 0; i < files.size(); ++i) {
+        put_le64(out, data_offset);
+        put_le64(out, files[i].second.size());
+        put_le32(out, name_offsets[i]);
+        put_le32(out, 0);
+        data_offset += files[i].second.size();
+    }
+    out.insert(out.end(), names.begin(), names.end());
+    for (const auto& f : files) out.insert(out.end(), f.second.begin(), f.second.end());
+    return out;
+}
+
+void test_pfs0() {
+    section("Conteneur NSP (PFS0)");
+
+    const std::vector<std::pair<std::string, std::string>> files = {
+        {"0123456789abcdef0123456789abcdef.cnmt.nca", "METACONTENU"},
+        {"fedcba9876543210fedcba9876543210.nca", "DONNEES-DU-JEU"},
+        {"0005000c10000000.tik", "TICKET"},
+    };
+
+    const std::vector<uint8_t> image = build_pfs0(files);
+    const std::string path = "/tmp/torfoil-test.nsp";
+    std::FILE* fp = std::fopen(path.c_str(), "wb");
+    check(fp != nullptr, "fichier d'essai créé");
+    if (fp) {
+        std::fwrite(image.data(), 1, image.size(), fp);
+        std::fclose(fp);
+    }
+
+    install::FileReader reader;
+    check(reader.open(path), "ouverture du NSP");
+
+    std::vector<install::ArchiveEntry> entries;
+    std::string err;
+    check(install::parse_pfs0(reader, 0, entries, &err), "analyse PFS0 : " + (err.empty() ? "ok" : err));
+    check(entries.size() == files.size(),
+          "3 entrées trouvées (" + std::to_string(entries.size()) + ")");
+
+    // Le point qui compte vraiment : chaque décalage doit pointer sur le bon
+    // contenu. Une erreur d'un octet ici produit un NCA corrompu, installé sans
+    // broncher, et un jeu qui plante au lancement.
+    bool offsets_ok = entries.size() == files.size();
+    for (size_t i = 0; i < entries.size() && offsets_ok; ++i) {
+        if (entries[i].name != files[i].first || entries[i].size != files[i].second.size()) {
+            offsets_ok = false;
+            break;
+        }
+        std::string got(entries[i].size, '\0');
+        if (!reader.read(entries[i].offset, &got[0], got.size()) || got != files[i].second) {
+            offsets_ok = false;
+        }
+    }
+    check(offsets_ok, "chaque entrée pointe sur les bons octets");
+
+    check(install::list_installable_contents(reader, entries, &err),
+          "détection automatique du format");
+
+    // Un en-tête menteur ne doit pas faire lire hors du fichier.
+    std::vector<uint8_t> corrupt = image;
+    corrupt[4] = 0xff; corrupt[5] = 0xff; corrupt[6] = 0xff; corrupt[7] = 0x7f;
+    const std::string bad_path = "/tmp/torfoil-bad.nsp";
+    fp = std::fopen(bad_path.c_str(), "wb");
+    if (fp) {
+        std::fwrite(corrupt.data(), 1, corrupt.size(), fp);
+        std::fclose(fp);
+    }
+    install::FileReader bad;
+    check(bad.open(bad_path), "ouverture du NSP corrompu");
+    std::vector<install::ArchiveEntry> junk;
+    check(!install::parse_pfs0(bad, 0, junk, &err), "nombre d'entrées aberrant refusé");
+
+    std::remove(path.c_str());
+    std::remove(bad_path.c_str());
+}
+
+// ---------------------------------------------------------------------------
+// Chaîne d'installation : NCA meta chiffré → CNMT → liste des contenus.
+//
+// C'est le code le plus difficile à vérifier du projet, parce qu'il demande de
+// vraies prod.keys et un vrai jeu. On fabrique donc les deux : un jeu de clés
+// connu, et un NCA meta chiffré exactement comme le fait Nintendo (AES-XTS pour
+// l'en-tête, AES-ECB pour la zone de clés, AES-CTR pour la section). Si mes
+// tweaks ou mes compteurs sont faux d'un octet, rien ne ressort.
+// ---------------------------------------------------------------------------
+
+constexpr uint64_t kMediaUnit = 0x200;
+
+void aes_ecb_encrypt_blocks(const uint8_t key[16], const uint8_t* in, uint8_t* out, size_t blocks) {
+    mbedtls_aes_context ctx;
+    mbedtls_aes_init(&ctx);
+    mbedtls_aes_setkey_enc(&ctx, key, 128);
+    for (size_t i = 0; i < blocks; ++i) {
+        mbedtls_aes_crypt_ecb(&ctx, MBEDTLS_AES_ENCRYPT, in + i * 16, out + i * 16);
+    }
+    mbedtls_aes_free(&ctx);
+}
+
+// Chiffrement XTS façon Nintendo : un « tweak » par secteur de 0x200, numéroté
+// en gros-boutiste.
+void xts_encrypt(const uint8_t key[32], uint8_t* data, size_t len) {
+    mbedtls_aes_xts_context xts;
+    mbedtls_aes_xts_init(&xts);
+    mbedtls_aes_xts_setkey_enc(&xts, key, 256);
+    for (size_t sector = 0; sector * kMediaUnit < len; ++sector) {
+        uint8_t tweak[16];
+        std::memset(tweak, 0, 16);
+        for (int i = 0; i < 8; ++i) {
+            tweak[8 + i] = static_cast<uint8_t>((sector >> (8 * (7 - i))) & 0xff);
+        }
+        std::vector<uint8_t> tmp(kMediaUnit);
+        mbedtls_aes_crypt_xts(&xts, MBEDTLS_AES_ENCRYPT, kMediaUnit, tweak,
+                              data + sector * kMediaUnit, tmp.data());
+        std::memcpy(data + sector * kMediaUnit, tmp.data(), kMediaUnit);
+    }
+    mbedtls_aes_xts_free(&xts);
+}
+
+void ctr_crypt(const uint8_t key[16], const uint8_t base[8], uint64_t absolute_offset,
+               uint8_t* data, size_t len) {
+    uint8_t ctr[16];
+    for (int i = 0; i < 8; ++i) ctr[i] = base[7 - i];
+    for (int i = 0; i < 8; ++i) {
+        ctr[8 + i] = static_cast<uint8_t>(((absolute_offset >> 4) >> (8 * (7 - i))) & 0xff);
+    }
+
+    mbedtls_aes_context ctx;
+    mbedtls_aes_init(&ctx);
+    mbedtls_aes_setkey_enc(&ctx, key, 128);
+    std::vector<uint8_t> out(len);
+    size_t nc_off = 0;
+    uint8_t stream_block[16]{};
+    mbedtls_aes_crypt_ctr(&ctx, len, &nc_off, ctr, stream_block, data, out.data());
+    mbedtls_aes_free(&ctx);
+    std::memcpy(data, out.data(), len);
+}
+
+void put_le16_at(uint8_t* p, uint16_t v) { p[0] = v & 0xff; p[1] = (v >> 8) & 0xff; }
+void put_le32_at(uint8_t* p, uint32_t v) {
+    for (int i = 0; i < 4; ++i) p[i] = static_cast<uint8_t>((v >> (8 * i)) & 0xff);
+}
+void put_le64_at(uint8_t* p, uint64_t v) {
+    for (int i = 0; i < 8; ++i) p[i] = static_cast<uint8_t>((v >> (8 * i)) & 0xff);
+}
+
+// CNMT d'une application : un contenu Program, un contenu Meta, un fragment
+// delta (qui doit être ignoré).
+std::vector<uint8_t> build_cnmt(uint64_t title_id, uint32_t version) {
+    std::vector<uint8_t> blob(0x20, 0);
+    put_le64_at(blob.data(), title_id);
+    put_le32_at(blob.data() + 0x08, version);
+    blob[0x0C] = 0x80;                          // Application
+    put_le16_at(blob.data() + 0x0E, 0x10);      // en-tête étendu
+    put_le16_at(blob.data() + 0x10, 3);         // 3 contenus
+    put_le16_at(blob.data() + 0x12, 0);         // aucun content_meta
+    blob[0x14] = 0;
+
+    blob.resize(0x20 + 0x10, 0xEE);             // en-tête étendu, contenu arbitraire
+
+    auto add_record = [&](uint8_t marker, uint64_t size, uint8_t type) {
+        std::vector<uint8_t> rec(0x38, 0);
+        std::memset(rec.data(), marker, 32);            // hash
+        std::memset(rec.data() + 32, marker, 16);       // nca_id
+        for (int b = 0; b < 6; ++b) {
+            rec[48 + b] = static_cast<uint8_t>((size >> (8 * b)) & 0xff);
+        }
+        rec[54] = type;
+        rec[55] = 0;
+        blob.insert(blob.end(), rec.begin(), rec.end());
+    };
+
+    add_record(0xA1, 1234567, 1);  // Program
+    add_record(0xB2, 4096, 0);     // Meta
+    add_record(0xC3, 999, 6);      // DeltaFragment — doit être écarté
+    return blob;
+}
+
+void test_install_chain() {
+    section("Chaîne d'installation (NCA meta chiffré)");
+
+    // --- clés connues ---
+    uint8_t header_key[32], kaek[16], section_key[16];
+    for (int i = 0; i < 32; ++i) header_key[i] = static_cast<uint8_t>(0x10 + i);
+    for (int i = 0; i < 16; ++i) kaek[i] = static_cast<uint8_t>(0xA0 + i);
+    for (int i = 0; i < 16; ++i) section_key[i] = static_cast<uint8_t>(0x50 + i);
+
+    const std::string keys_path = "/tmp/torfoil-test.keys";
+    std::FILE* kf = std::fopen(keys_path.c_str(), "wb");
+    check(kf != nullptr, "fichier de clés d'essai créé");
+    if (kf) {
+        std::fprintf(kf, "header_key = %s\n", util::to_hex(header_key, 32).c_str());
+        std::fprintf(kf, "key_area_key_application_00 = %s\n", util::to_hex(kaek, 16).c_str());
+        std::fclose(kf);
+    }
+
+    install::KeySet keys;
+    std::string err;
+    check(keys.load_from(keys_path, &err), "clés chargées : " + (err.empty() ? "ok" : err));
+    check(keys.header_key() != nullptr, "header_key lue");
+    check(keys.key_area_key_application(0) != nullptr, "key_area_key_application_00 lue");
+
+    // --- CNMT, puis PFS0 qui le contient ---
+    const uint64_t title_id = 0x0100ABCDEF000000ull;
+    const std::vector<uint8_t> cnmt = build_cnmt(title_id, 65536);
+    const std::string cnmt_str(cnmt.begin(), cnmt.end());
+    const std::vector<uint8_t> pfs0 =
+        build_pfs0({{"Application_0100abcdef000000.cnmt", cnmt_str}});
+
+    // --- section 0 : le PFS0 précédé d'une couche de hachage ---
+    const uint64_t content_offset = 0x1000;  // le PFS0 commence après les hachages
+    std::vector<uint8_t> section(content_offset + pfs0.size(), 0);
+    std::memcpy(section.data() + content_offset, pfs0.data(), pfs0.size());
+    while (section.size() % kMediaUnit != 0) section.push_back(0);
+
+    const uint64_t section_start_media = 6;  // 0xC00 / 0x200 : juste après l'en-tête
+    const uint64_t section_offset = section_start_media * kMediaUnit;
+    const uint64_t section_media_count = section.size() / kMediaUnit;
+
+    uint8_t ctr_base[8];
+    for (int i = 0; i < 8; ++i) ctr_base[i] = static_cast<uint8_t>(0x70 + i);
+
+    // --- en-tête NCA3 ---
+    std::vector<uint8_t> header(0xC00, 0);
+    std::memcpy(header.data() + 0x200, "NCA3", 4);
+    header[0x205] = 1;  // Meta
+    header[0x206] = 0;
+    header[0x207] = 0;  // key_area_index = Application
+    put_le64_at(header.data() + 0x208, 0xC00 + section.size());
+    put_le64_at(header.data() + 0x210, title_id);
+    header[0x220] = 0;
+
+    put_le32_at(header.data() + 0x240, static_cast<uint32_t>(section_start_media));
+    put_le32_at(header.data() + 0x244,
+                static_cast<uint32_t>(section_start_media + section_media_count));
+
+    uint8_t* fs = header.data() + 0x400;
+    fs[0x02] = 0;  // PartitionFs
+    fs[0x03] = 2;  // HierarchicalSha256
+    fs[0x04] = 3;  // AES-CTR
+    put_le32_at(fs + 0x08 + 0x24, 2);  // deux couches
+    uint8_t* region = fs + 0x08 + 0x28 + (2 - 1) * 0x10;
+    put_le64_at(region, content_offset);
+    put_le64_at(region + 8, pfs0.size());
+    std::memcpy(fs + 0x140, ctr_base, 8);
+
+    // Zone de clés : la clé de section occupe l'entrée 2 (décalage 0x20).
+    uint8_t key_area[0x40] = {0};
+    std::memcpy(key_area + 0x20, section_key, 16);
+    aes_ecb_encrypt_blocks(kaek, key_area, header.data() + 0x300, 4);
+
+    xts_encrypt(header_key, header.data(), header.size());
+    ctr_crypt(section_key, ctr_base, section_offset, section.data(), section.size());
+
+    // --- le NCA complet, empaqueté dans un NSP ---
+    std::vector<uint8_t> nca;
+    nca.insert(nca.end(), header.begin(), header.end());
+    nca.insert(nca.end(), section.begin(), section.end());
+
+    const std::string nca_name = "0123456789abcdef0123456789abcdef.cnmt.nca";
+    const std::vector<uint8_t> nsp =
+        build_pfs0({{nca_name, std::string(nca.begin(), nca.end())}});
+
+    const std::string nsp_path = "/tmp/torfoil-test-meta.nsp";
+    std::FILE* nf = std::fopen(nsp_path.c_str(), "wb");
+    if (nf) {
+        std::fwrite(nsp.data(), 1, nsp.size(), nf);
+        std::fclose(nf);
+    }
+
+    // --- on rejoue exactement ce que fait l'installateur ---
+    install::FileReader reader;
+    check(reader.open(nsp_path), "NSP d'essai ouvert");
+
+    std::vector<install::ArchiveEntry> entries;
+    check(install::list_installable_contents(reader, entries, &err), "contenus listés");
+
+    const install::ArchiveEntry* meta_entry = nullptr;
+    for (const auto& e : entries) {
+        if (e.name.size() > 9 && e.name.compare(e.name.size() - 9, 9, ".cnmt.nca") == 0) {
+            meta_entry = &e;
+        }
+    }
+    check(meta_entry != nullptr, "NCA meta repéré");
+
+    install::NcaInfo info;
+    const bool header_ok =
+        meta_entry && install::nca_read_header(reader, meta_entry->offset, keys, info, &err);
+    check(header_ok, "en-tête NCA déchiffré : " + (err.empty() ? "ok" : err));
+    check(header_ok && info.content_type == install::kNcaMeta, "type de contenu = Meta");
+    check(header_ok && info.title_id == title_id, "identifiant de titre correct");
+    check(header_ok && info.sections[0].present, "section 0 présente");
+    check(header_ok && info.sections[0].content_size == pfs0.size(),
+          "taille du PFS0 interne correcte");
+    check(header_ok && std::memcmp(info.decrypted_key_area + 0x20, section_key, 16) == 0,
+          "clé de section retrouvée (zone de clés déchiffrée)");
+
+    std::vector<uint8_t> extracted;
+    const bool cnmt_ok =
+        header_ok && install::nca_extract_cnmt(reader, meta_entry->offset, info, extracted, &err);
+    check(cnmt_ok, "CNMT extrait de la section chiffrée : " + (err.empty() ? "ok" : err));
+    check(cnmt_ok && extracted == cnmt, "octets du CNMT identiques à l'original");
+
+    install::CnmtInfo parsed;
+    const bool parsed_ok = cnmt_ok && install::parse_cnmt(extracted, parsed, &err);
+    check(parsed_ok, "CNMT analysé : " + (err.empty() ? "ok" : err));
+    check(parsed_ok && parsed.title_id == title_id, "titre lu dans le CNMT");
+    check(parsed_ok && parsed.version == 65536, "version lue");
+    check(parsed_ok && parsed.meta_type == 0x80, "type Application");
+    check(parsed_ok && parsed.contents.size() == 2,
+          "fragment delta écarté, 2 contenus retenus (" +
+              std::to_string(parsed_ok ? parsed.contents.size() : 0) + ")");
+    check(parsed_ok && !parsed.contents.empty() && parsed.contents[0].size == 1234567,
+          "taille de contenu sur 6 octets décodée");
+    check(parsed_ok && parsed.application_id() == title_id, "identifiant applicatif");
+    check(parsed_ok && parsed.extended_header.size() == 0x10, "en-tête étendu conservé");
+
+    // --- vérification complète du paquet, empreintes comprises ---
+    //
+    // On refabrique le NSP avec les vrais contenus et leurs vrais SHA-256, pour
+    // que la vérification profonde ait quelque chose de correct à valider.
+    {
+        const std::string program_data(4096, 'P');
+        uint8_t program_hash[32];
+        mbedtls_sha256_ret(reinterpret_cast<const uint8_t*>(program_data.data()),
+                           program_data.size(), program_hash, 0);
+
+        // CNMT sur mesure : deux contenus réels, avec leurs empreintes.
+        std::vector<uint8_t> real_cnmt(0x20, 0);
+        put_le64_at(real_cnmt.data(), title_id);
+        put_le32_at(real_cnmt.data() + 0x08, 1);
+        real_cnmt[0x0C] = 0x80;
+        put_le16_at(real_cnmt.data() + 0x0E, 0);
+        put_le16_at(real_cnmt.data() + 0x10, 1);
+        put_le16_at(real_cnmt.data() + 0x12, 0);
+
+        std::vector<uint8_t> rec(0x38, 0);
+        std::memcpy(rec.data(), program_hash, 32);
+        for (int i = 0; i < 16; ++i) rec[32 + i] = static_cast<uint8_t>(0xD0 + i);
+        for (int b = 0; b < 6; ++b) {
+            rec[48 + b] = static_cast<uint8_t>((program_data.size() >> (8 * b)) & 0xff);
+        }
+        rec[54] = 1;  // Program
+        real_cnmt.insert(real_cnmt.end(), rec.begin(), rec.end());
+
+        uint8_t program_id[16];
+        for (int i = 0; i < 16; ++i) program_id[i] = static_cast<uint8_t>(0xD0 + i);
+        const std::string program_name = util::to_hex(program_id, 16) + ".nca";
+
+        // On réutilise la même mécanique de NCA meta, avec ce CNMT-là.
+        const std::string real_cnmt_str(real_cnmt.begin(), real_cnmt.end());
+        const std::vector<uint8_t> real_pfs0 =
+            build_pfs0({{"Application_0100abcdef000000.cnmt", real_cnmt_str}});
+
+        std::vector<uint8_t> sect(content_offset + real_pfs0.size(), 0);
+        std::memcpy(sect.data() + content_offset, real_pfs0.data(), real_pfs0.size());
+        while (sect.size() % kMediaUnit != 0) sect.push_back(0);
+
+        std::vector<uint8_t> hdr(0xC00, 0);
+        std::memcpy(hdr.data() + 0x200, "NCA3", 4);
+        hdr[0x205] = 1;
+        hdr[0x207] = 0;
+        put_le64_at(hdr.data() + 0x208, 0xC00 + sect.size());
+        put_le64_at(hdr.data() + 0x210, title_id);
+        put_le32_at(hdr.data() + 0x240, static_cast<uint32_t>(section_start_media));
+        put_le32_at(hdr.data() + 0x244,
+                    static_cast<uint32_t>(section_start_media + sect.size() / kMediaUnit));
+        uint8_t* fs2 = hdr.data() + 0x400;
+        fs2[0x02] = 0; fs2[0x03] = 2; fs2[0x04] = 3;
+        put_le32_at(fs2 + 0x08 + 0x24, 2);
+        uint8_t* reg2 = fs2 + 0x08 + 0x28 + 0x10;
+        put_le64_at(reg2, content_offset);
+        put_le64_at(reg2 + 8, real_pfs0.size());
+        std::memcpy(fs2 + 0x140, ctr_base, 8);
+        aes_ecb_encrypt_blocks(kaek, key_area, hdr.data() + 0x300, 4);
+
+        xts_encrypt(header_key, hdr.data(), hdr.size());
+        ctr_crypt(section_key, ctr_base, section_offset, sect.data(), sect.size());
+
+        std::vector<uint8_t> meta_nca_bytes;
+        meta_nca_bytes.insert(meta_nca_bytes.end(), hdr.begin(), hdr.end());
+        meta_nca_bytes.insert(meta_nca_bytes.end(), sect.begin(), sect.end());
+
+        const std::vector<uint8_t> full_nsp = build_pfs0({
+            {nca_name, std::string(meta_nca_bytes.begin(), meta_nca_bytes.end())},
+            {program_name, program_data},
+        });
+
+        const std::string full_path = "/tmp/torfoil-full.nsp";
+        std::FILE* ff = std::fopen(full_path.c_str(), "wb");
+        if (ff) {
+            std::fwrite(full_nsp.data(), 1, full_nsp.size(), ff);
+            std::fclose(ff);
+        }
+
+        install::Outcome v =
+            install::verify_package_with_keys(full_path, keys, /*deep=*/true, nullptr);
+        check(v.ok, "paquet sain accepté : " + v.message);
+        check(v.title_id == title_id, "identifiant de titre rapporté");
+
+        // Un octet retourné dans le contenu doit être détecté.
+        std::vector<uint8_t> tampered = full_nsp;
+        const size_t target = tampered.size() - 100;
+        tampered[target] ^= 0x01;
+        const std::string bad_full = "/tmp/torfoil-full-bad.nsp";
+        ff = std::fopen(bad_full.c_str(), "wb");
+        if (ff) {
+            std::fwrite(tampered.data(), 1, tampered.size(), ff);
+            std::fclose(ff);
+        }
+        install::Outcome bad =
+            install::verify_package_with_keys(bad_full, keys, /*deep=*/true, nullptr);
+        check(!bad.ok, "un seul bit altéré fait échouer la vérification");
+
+        // Fichier tronqué : détecté sans lire hors limites.
+        const std::string cut_path = "/tmp/torfoil-cut.nsp";
+        ff = std::fopen(cut_path.c_str(), "wb");
+        if (ff) {
+            std::fwrite(full_nsp.data(), 1, full_nsp.size() - 2000, ff);
+            std::fclose(ff);
+        }
+        install::Outcome cut =
+            install::verify_package_with_keys(cut_path, keys, /*deep=*/false, nullptr);
+        check(!cut.ok, "paquet tronqué refusé : " + cut.message);
+
+        std::remove(full_path.c_str());
+        std::remove(bad_full.c_str());
+        std::remove(cut_path.c_str());
+    }
+
+    // Un CNMT tronqué ne doit pas faire lire hors du tampon.
+    std::vector<uint8_t> truncated(cnmt.begin(), cnmt.begin() + 0x30);
+    install::CnmtInfo junk;
+    check(!install::parse_cnmt(truncated, junk, &err), "CNMT tronqué refusé");
+
+    // Des clés fausses doivent échouer proprement, pas produire n'importe quoi.
+    install::KeySet wrong_keys;
+    const std::string wrong_path = "/tmp/torfoil-wrong.keys";
+    kf = std::fopen(wrong_path.c_str(), "wb");
+    if (kf) {
+        uint8_t bad[32];
+        std::memset(bad, 0x99, sizeof(bad));
+        std::fprintf(kf, "header_key = %s\n", util::to_hex(bad, 32).c_str());
+        std::fprintf(kf, "key_area_key_application_00 = %s\n", util::to_hex(bad, 16).c_str());
+        std::fclose(kf);
+    }
+    wrong_keys.load_from(wrong_path, nullptr);
+    install::NcaInfo bogus;
+    check(meta_entry && !install::nca_read_header(reader, meta_entry->offset, wrong_keys, bogus,
+                                                  &err),
+          "clés erronées rejetées sans dégât");
+
+    std::remove(keys_path.c_str());
+    std::remove(wrong_path.c_str());
+    std::remove(nsp_path.c_str());
+}
+
+}  // namespace
+
+int main() {
+    std::printf("\033[1mTorfoil — tests hôte\033[0m\n");
+
+    test_sha1();
+    test_bencode();
+    test_torrent();
+    test_magnet();
+    test_bitfield();
+    test_picker();
+    test_blake2s();
+    test_chacha20();
+    test_aead();
+    test_x25519();
+    test_wireguard();
+    test_storage();
+    test_storage_multifile();
+    test_storage_size_limit();
+    test_pfs0();
+    test_install_chain();
+
+    std::printf("\n\033[1m%d réussis, %d échoués\033[0m\n", g_pass, g_fail);
+    return g_fail == 0 ? 0 : 1;
+}
