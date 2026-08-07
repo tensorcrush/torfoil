@@ -3,7 +3,6 @@
 #include <mutex>
 
 #include <sys/stat.h>
-#include <sys/statvfs.h>
 #include <unistd.h>
 
 #ifdef __SWITCH__
@@ -14,6 +13,7 @@
 #include <cerrno>
 #include <cstring>
 
+#include "util/bytes.hpp"
 #include "util/log.hpp"
 #include "util/sha1.hpp"
 
@@ -88,17 +88,12 @@ bool Storage::open(const MetaInfo& meta, const std::string& base_dir, std::strin
 
     // Espace libre vérifié d'entrée : découvrir qu'il manque 10 Go après trois
     // heures de téléchargement n'aide personne.
-    // Le « && vfs.f_blocks > 0 » n'est pas décoratif : si la console ne renseigne
-    // pas ces champs, tout vaut zéro et on refuserait le torrent en annonçant
-    // une carte pleine qui ne l'est pas. Mieux vaut ne pas vérifier que mentir.
-    struct statvfs vfs{};
-    if (::statvfs(base_dir_.c_str(), &vfs) == 0 && vfs.f_frsize > 0 && vfs.f_blocks > 0) {
-        const uint64_t free_bytes = static_cast<uint64_t>(vfs.f_bavail) * vfs.f_frsize;
-        if (free_bytes < meta_.total_size) {
-            const uint64_t need_mb = (meta_.total_size - free_bytes) / (1024 * 1024);
-            return fail(err, "espace insuffisant sur la carte : il manque " +
-                                 std::to_string(need_mb) + " Mo");
-        }
+    // Zéro veut dire « on ne sait pas » (voir util::disk_free) : on ne refuse
+    // alors rien, plutôt que d'annoncer une carte pleine qui ne l'est pas.
+    const uint64_t free_bytes = util::disk_free(base_dir_);
+    if (free_bytes > 0 && free_bytes < meta_.total_size) {
+        return fail(err, "espace insuffisant sur la carte : il manque " +
+                             util::human_size(meta_.total_size - free_bytes));
     }
 
     files_.reserve(meta_.files.size());

@@ -71,6 +71,15 @@ std::string url_decode(const std::string& s);
 // CSRNG de la console (randomGet) sur Switch, std::random_device ailleurs.
 void random_bytes(uint8_t* out, size_t len);
 
+// Octets libres sur le volume qui contient `path`, 0 si la question n'a pas de
+// réponse fiable.
+//
+// Ce zéro compte : quand la console ne renseigne pas ces champs, tout vaut zéro
+// et un appelant naïf annonce une carte pleine qui ne l'est pas. Zéro signifie
+// donc « on ne sait pas », jamais « il ne reste rien », et chaque appelant doit
+// le traiter comme tel.
+uint64_t disk_free(const std::string& path);
+
 // --- affichage ---
 
 std::string human_size(uint64_t bytes);            // "1,42 Go"
