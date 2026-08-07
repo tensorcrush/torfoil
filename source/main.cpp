@@ -6,7 +6,7 @@
 #include <string>
 
 #ifndef APP_VERSION_STRING
-#define APP_VERSION_STRING "0.1.0"
+#define APP_VERSION_STRING "0.2.0"
 #endif
 
 #include "ui/app.hpp"
@@ -137,11 +137,19 @@ int main(int argc, char* argv[]) {
         util::log_line("réseau : pilote socket initialisé");
     }
 
+    // set:sys renseigne la langue choisie dans les paramètres de la console.
+    // Son absence n'est pas fatale : l'interface retombe alors sur l'anglais.
+    const Result set_rc = setInitialize();
+    if (R_FAILED(set_rc)) {
+        util::log_fmt("setInitialize a échoué (0x%08x) — interface en anglais", set_rc);
+    }
+
     // pl:u fournit les polices système utilisées par l'interface.
     rc = plInitialize(PlServiceType_User);
     if (R_FAILED(rc)) {
         util::log_fmt("plInitialize a échoué : 0x%08x", rc);
         util::log_close();
+        if (R_SUCCEEDED(set_rc)) setExit();
         socketExit();
         fatal_console("Service de polices indisponible (pl:u).");
         return 1;
@@ -170,6 +178,7 @@ int main(int argc, char* argv[]) {
             app.shutdown();
             util::log_close();
             plExit();
+            if (R_SUCCEEDED(set_rc)) setExit();
             socketExit();
             fatal_console(err);
             return 1;
@@ -180,6 +189,7 @@ int main(int argc, char* argv[]) {
     if (ns_ready) nsExit();
     if (ncm_ready) ncmExit();
     plExit();
+    if (R_SUCCEEDED(set_rc)) setExit();
     socketExit();
     return 0;
 }

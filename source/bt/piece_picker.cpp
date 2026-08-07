@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 
 #include "util/bytes.hpp"
 
@@ -153,7 +154,7 @@ uint32_t PiecePicker::pick(const Bitfield& peer_pieces, BlockRequest* out, uint3
                 prog.blocks[b] = BlockState::Pending;
                 ++prog.pending;
             }
-            pending_.push_back(Pending{piece, offset, length, now_ms});
+            pending_[block_key(piece, offset)] = now_ms;
         }
     };
 
@@ -171,12 +172,18 @@ uint32_t PiecePicker::pick(const Bitfield& peer_pieces, BlockRequest* out, uint3
         uint16_t best_avail = 0xffff;
 
         const uint32_t total = meta_.piece_count();
-        for (uint32_t step = 0; step < total; ++step) {
+        uint32_t weighed = 0;
+        for (uint32_t step = 0; step < total && weighed < kRarestSample; ++step) {
             const uint32_t i = (pick_cursor_ + step) % total;
             if (have_.get(i) || !peer_pieces.get(i)) continue;
             if (progress_.count(i)) continue;  // déjà traitée en phase 1
             if (availability_[i] == 0) continue;
 
+            // Le compteur ne monte que sur les pièces réellement candidates :
+            // borner les tours de boucle bruts ferait renoncer un torrent
+            // presque terminé, dont les rares pièces manquantes sont noyées
+            // dans des milliers de pièces déjà acquises.
+            ++weighed;
             if (availability_[i] < best_avail) {
                 best_avail = availability_[i];
                 best = i;
@@ -207,11 +214,7 @@ bool PiecePicker::on_block_received(uint32_t piece, uint32_t offset, uint32_t le
     if (index >= prog.blocks.size()) return false;
 
     // Retire la requête en attente correspondante.
-    pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
-                                  [&](const Pending& p) {
-                                      return p.piece == piece && p.offset == offset;
-                                  }),
-                   pending_.end());
+    pending_.erase(block_key(piece, offset));
 
     if (prog.blocks[index] == BlockState::Done) return false;  // doublon (endgame)
     if (prog.blocks[index] == BlockState::Pending && prog.pending > 0) --prog.pending;
@@ -225,11 +228,7 @@ bool PiecePicker::on_block_received(uint32_t piece, uint32_t offset, uint32_t le
 
 void PiecePicker::on_request_dropped(uint32_t piece, uint32_t offset, uint32_t length) {
     (void)length;
-    pending_.erase(std::remove_if(pending_.begin(), pending_.end(),
-                                  [&](const Pending& p) {
-                                      return p.piece == piece && p.offset == offset;
-                                  }),
-                   pending_.end());
+    pending_.erase(block_key(piece, offset));
 
     auto it = progress_.find(piece);
     if (it == progress_.end()) return;
@@ -256,24 +255,23 @@ void PiecePicker::on_piece_verified(uint32_t piece, bool ok) {
         it->second.done = 0;
         it->second.pending = 0;
     }
-    pending_.erase(
-        std::remove_if(pending_.begin(), pending_.end(),
-                       [&](const Pending& p) { return p.piece == piece; }),
-        pending_.end());
+
+    for (auto p = pending_.begin(); p != pending_.end();) {
+        p = (static_cast<uint32_t>(p->first >> 32) == piece) ? pending_.erase(p) : std::next(p);
+    }
 }
 
 uint32_t PiecePicker::expire_requests(uint64_t now_ms, uint64_t timeout_ms) {
     uint32_t freed = 0;
-    for (size_t i = 0; i < pending_.size();) {
-        const Pending& p = pending_[i];
-        if (now_ms - p.requested_ms < timeout_ms) {
-            ++i;
+    for (auto p = pending_.begin(); p != pending_.end();) {
+        if (now_ms - p->second < timeout_ms) {
+            ++p;
             continue;
         }
 
-        const uint32_t piece = p.piece;
-        const uint32_t offset = p.offset;
-        pending_.erase(pending_.begin() + static_cast<long>(i));
+        const uint32_t piece = static_cast<uint32_t>(p->first >> 32);
+        const uint32_t offset = static_cast<uint32_t>(p->first);
+        p = pending_.erase(p);
 
         auto it = progress_.find(piece);
         if (it != progress_.end()) {

@@ -11,6 +11,12 @@
 #include <random>
 #endif
 
+// statvfs existe sur Horizon comme sous Linux ; seule la compilation croisée
+// sous Windows (vérifications rapides hors console) ne l'a pas.
+#ifndef _WIN32
+#include <sys/statvfs.h>
+#endif
+
 namespace util {
 
 namespace {
@@ -138,6 +144,22 @@ void random_bytes(uint8_t* out, size_t len) {
     static std::mt19937 gen(rd());
     std::uniform_int_distribution<int> dist(0, 255);
     for (size_t i = 0; i < len; ++i) out[i] = static_cast<uint8_t>(dist(gen));
+#endif
+}
+
+uint64_t disk_free(const std::string& path) {
+#ifdef _WIN32
+    (void)path;
+    return 0;
+#else
+    struct statvfs vfs{};
+    if (::statvfs(path.c_str(), &vfs) != 0) return 0;
+    // Le « f_blocks > 0 » n'est pas décoratif : quand la console ne renseigne
+    // pas ces champs, tout vaut zéro, et sans ce test on refuserait un torrent
+    // en annonçant une carte pleine qui ne l'est pas. Mieux vaut ne pas savoir
+    // que se tromper.
+    if (vfs.f_frsize == 0 || vfs.f_blocks == 0) return 0;
+    return static_cast<uint64_t>(vfs.f_bavail) * vfs.f_frsize;
 #endif
 }
 

@@ -54,8 +54,21 @@ struct TorrentStatus {
     uint32_t leechers = 0;
     uint64_t eta_s = 0;
     std::string message;
-    std::string save_path;
+    std::string save_path;  // dossier de téléchargement commun
+    // Chemin qui appartient VRAIMENT à ce torrent : le fichier lui-même s'il
+    // est seul, sinon son dossier. Distinct de save_path, qui est le même pour
+    // tout le monde et ne permet donc de reconnaître personne.
+    std::string content_root;
     std::string primary_file;  // plus gros fichier — cible de l'installeur
+
+    // Détail affiché à la demande (Moins). Recopié à chaque publication, mais
+    // ces champs sont minuscules ou figés après l'ajout.
+    uint32_t pieces_total = 0;
+    uint32_t pieces_done = 0;
+    uint32_t corrupt_pieces = 0;
+    uint32_t files_count = 0;
+    bool is_private = false;  // BEP 27 : ni DHT ni PEX sur ce torrent
+    std::vector<std::string> trackers;
 };
 
 class Torrent;
@@ -83,9 +96,20 @@ public:
     std::shared_ptr<net::Transport> transport_for_diagnostics() const { return transport(); }
 
     // Validés immédiatement (analyse du lien / du fichier), appliqués par le
-    // thread moteur.
+    // thread moteur. Appelables depuis n'importe quel fil : tout passe par la
+    // file de commandes.
     bool add_magnet(const std::string& uri, std::string* err = nullptr);
     bool add_torrent_file(const std::string& path, std::string* err = nullptr);
+
+    // Même chose depuis le contenu d'un .torrent déjà en mémoire — ce qui
+    // arrive du téléphone n'a jamais touché la carte. `name_out` reçoit le nom
+    // lisible du torrent, utile pour l'accusé de réception.
+    bool add_torrent_data(const std::string& blob, std::string* err = nullptr,
+                          std::string* name_out = nullptr);
+
+    // Torrent déjà connu ? Sert à répondre « déjà présent » au lieu d'annoncer
+    // un ajout qui sera silencieusement ignoré par le moteur.
+    bool has_torrent(const std::string& hash_hex) const;
 
     // Reprend les torrents laissés en cours lors de la session précédente.
     // Renvoie combien ont été relancés.
@@ -172,7 +196,7 @@ private:
     Dht dht_;
     const net::Transport* dht_transport_ = nullptr;
 
-    std::mutex cmd_mutex_;
+    mutable std::mutex cmd_mutex_;
     std::vector<Command> commands_;
 
     mutable std::mutex status_mutex_;

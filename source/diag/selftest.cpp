@@ -1,7 +1,5 @@
 #include "diag/selftest.hpp"
 
-#include <sys/statvfs.h>
-
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -58,17 +56,16 @@ Check check_large_file(const std::string& dir, const StepFn& step) {
 
     // Ce test réserve réellement plus de 4 Go : sans place, il échouerait en
     // accusant le mécanisme de découpage alors que seule la carte est pleine.
-    struct statvfs vfs{};
-    if (::statvfs(dir.c_str(), &vfs) == 0 && vfs.f_frsize > 0 && vfs.f_blocks > 0) {
-        const uint64_t free_bytes = static_cast<uint64_t>(vfs.f_bavail) * vfs.f_frsize;
-        if (free_bytes < needed + 64 * 1024 * 1024) {
-            Check c;
-            c.name = name;
-            c.ran = false;
-            c.detail = "non exécuté : il faut environ 4,2 Go libres sur la carte, il en reste " +
-                       util::human_size(free_bytes);
-            return c;
-        }
+    // Zéro veut dire « on ne sait pas » (voir util::disk_free) : on tente alors
+    // l'épreuve plutôt que de la déclarer impossible sans preuve.
+    const uint64_t free_bytes = util::disk_free(dir);
+    if (free_bytes > 0 && free_bytes < needed + 64 * 1024 * 1024) {
+        Check c;
+        c.name = name;
+        c.ran = false;
+        c.detail = "non exécuté : il faut environ 4,2 Go libres sur la carte, il en reste " +
+                   util::human_size(free_bytes);
+        return c;
     }
 
     if (step) step(name + " — réservation de 4 Go, cela peut prendre une minute");

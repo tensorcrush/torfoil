@@ -94,22 +94,38 @@ private:
         uint32_t pending = 0;
     };
 
+    // Nombre de pièces candidates réellement pesées avant de choisir la plus
+    // rare. Sans cette borne, chaque appel balayait la table entière : sur un
+    // torrent de 35 Go (17 000 pièces) et soixante pairs, cela faisait un
+    // million de tours de boucle par passage du moteur, pour choisir un chiffre
+    // qui n'aurait pas été différent. Un échantillon glissant donne le même
+    // « rarest first » en pratique, puisque le curseur balaie tout le fichier
+    // d'un appel à l'autre.
+    static constexpr uint32_t kRarestSample = 256;
+
     uint32_t blocks_in_piece(uint32_t piece) const;
     PieceProgress& progress_for(uint32_t piece);
     bool endgame() const;
+
+    // Clé d'un bloc : la pièce dans les 32 bits hauts, le décalage dans les bas.
+    static uint64_t block_key(uint32_t piece, uint32_t offset) {
+        return static_cast<uint64_t>(piece) << 32 | offset;
+    }
 
     MetaInfo meta_;
     Bitfield have_;
     std::vector<uint16_t> availability_;  // saturé à 65535, largement suffisant
     std::unordered_map<uint32_t, PieceProgress> progress_;
 
-    struct Pending {
-        uint32_t piece;
-        uint32_t offset;
-        uint32_t length;
-        uint64_t requested_ms;
-    };
-    std::vector<Pending> pending_;
+    // Blocs demandés et pas encore reçus, associés à l'instant de la demande.
+    //
+    // C'était un vecteur, parcouru en entier à CHAQUE bloc reçu pour en retirer
+    // une entrée. Avec soixante pairs et soixante-quatre requêtes en vol
+    // chacun, cela fait près de quatre mille comparaisons par bloc de 16 Ko,
+    // cinq cents fois par seconde à plein débit — du temps pris sur la boucle
+    // qui devrait lire les sockets. Une table de hachage rend la même réponse
+    // en temps constant.
+    std::unordered_map<uint64_t, uint64_t> pending_;
 
     uint64_t bytes_done_ = 0;
     uint32_t pick_cursor_ = 0;  // évite de repartir de zéro à chaque appel

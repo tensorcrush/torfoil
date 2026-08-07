@@ -1,5 +1,6 @@
 # Produits de compilation
 build/
+build-diag/
 *.nro
 *.nacp
 *.elf

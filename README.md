@@ -4,8 +4,9 @@ A native BitTorrent client for the Nintendo Switch (Atmosphère), with a built-i
 **Mullvad WireGuard tunnel** and direct `.nsp` / `.xci` installation through
 `ncm`/`ns`. Like Tinfoil, except the source is a torrent.
 
-> The code and the in-app interface are in French. Translation contributions are
-> welcome.
+> The interface speaks German, English, Spanish, French, Japanese, Russian and
+> Chinese, and picks the console's own language on first launch. Code comments
+> are in French.
 
 ## Install
 
@@ -20,15 +21,62 @@ Lockpick_RCM). Downloading does not.
 
 | Tab | Controls |
 |---|---|
-| Torrents | **X** paste a magnet · **ZL** import `magnets.txt` · **Y** pause/resume · **B** skip verification · **ZR** remove |
+| Torrents | **A** open a `.torrent` from the card · **X** paste a magnet · **ZL** import `magnets.txt` · **Y** pause/resume · **–** details · **B** skip verification · **ZR** remove |
 | Library | **A** install · **Y** verify package · **X** rescan folder · **B** cancel current operation |
+| Remote | **A** start/stop the local server · **Y** restart it |
 | VPN | **X** Mullvad account (16 digits) · **A** connect/disconnect · **Y** country |
-| Settings | **↑↓** select · **A** toggle · **Y** self-test |
+| Settings | **↑↓** select · **A** or **←→** change · **Y** self-test |
+
+Removing a torrent asks first, and asks the useful question: keep the files
+(**A**) or delete them too (**Y**).
+
+**–** on a torrent opens the numbers a single line cannot hold: pieces, rejected
+pieces, blocks in flight, connected peers *and how many of them are choking you*,
+and the tracker list. Those last two answer "why is this slow?" on their own.
+
+Free space on the card is shown in the top bar at all times, and turns amber below
+5 GB. A modern Switch game does not fit under that.
 
 Active torrents **resume automatically on startup**: each magnet link is kept in
 `sdmc:/torfoil/downloads/.<hash>.magnet`. Without this, closing the application
 silently abandoned the download: the files stayed on the card, half finished,
 and nothing ever picked them up again.
+
+## Language
+
+Seven: **German, English, Spanish, French, Japanese, Russian, Chinese**. On first
+launch the app reads the console's own setting and follows it; a homebrew that
+opens in French on a German console looks broken before it has done anything.
+Consoles set to a language not in the list get English, never French.
+
+Change it at the top of the Settings tab — it is the first row precisely because
+it is the one you must be able to reach when you cannot read what is below it.
+The choice applies immediately and is stored in `settings.cfg` as `language=`
+(`auto`, or a two-letter code).
+
+The web page served to your phone is translated too, and carries the matching
+`lang` attribute.
+
+### Where the translations live
+
+One file, [`include/ui/strings.def`](include/ui/strings.def): one line per key,
+its seven translations side by side.
+
+```c
+X(TabRemote,
+  "Fernzugriff", "Remote", "Remoto", "À distance", "リモート", "Удалённо", "远程")
+```
+
+That file is included twice — once to generate the key enum, once to generate the
+table — so a forgotten column does not compile, and a `static_assert` catches any
+drift between the two. Adding a language means adding a column and fixing every
+line the compiler then points at. Reviewing a phrase means reading seven versions
+of it on one screen rather than hunting through seven files.
+
+**What is not translated:** engine diagnostics (storage errno detail, NCA parse
+failures, tracker refusals) and the pre-UI fatal console messages. Those exist to
+be pasted into a bug report, and they are French like the rest of the code. It is
+a deliberate line, not an unfinished job.
 
 ### Privacy (Settings tab)
 
@@ -42,21 +90,64 @@ gets enabled by accident, then blamed for making the app slow.
 | Disable DHT | No more plaintext UDP queries. Far fewer peers found. |
 | Disable PEX | Incoming messages are ignored *and* support is no longer advertised, since otherwise the peer already knows you take part. |
 | Share nothing | Chokes every peer up front. You will be choked back: the protocol rewards reciprocity. |
+| Remote access | Serves a web page on the local network. Only private addresses are answered, and nothing of the content passes through it. |
 
 Downloads land in `sdmc:/torfoil/downloads`.
 
-### Adding magnet links
+## Getting torrents in, from a phone (Remote tab)
 
-Typing a magnet on a virtual keyboard is painful, so there are two ways in.
+This is the main route, and the reason the Remote tab exists. A magnet link is
+sixty characters on a virtual keyboard, and a `.torrent` file cannot be opened by
+the console at all — the two things you actually have on a phone are exactly the
+two things the console was worst at receiving.
 
-- **X** opens the system keyboard. Fine for a short link, or if you can paste it
-  from the console browser.
+**Open the Remote tab and point your camera at the QR code.** iOS offers to open
+the page; there is nothing to install, no account, no third-party service. The
+address is also printed in full for anyone who would rather type it.
+
+The page is served by the console itself and offers:
+
+- **a `.torrent` file picker** — the iOS picker reaches Files and iCloud Drive, so
+  anything Safari saved with *Download Linked File* is one tap away. Several files
+  at once are fine;
+- **a magnet field**, one link per line, so a list prepared on the phone goes over
+  in one go;
+- **the live list of what the console is doing**, with pause, resume and remove.
+
+Uploaded `.torrent` files are copied to `sdmc:/torfoil/inbox` so you keep what you
+sent. Everything that arrives this way is announced on the console screen too:
+otherwise you cannot tell a successful upload from a silent failure without
+walking over to check.
+
+### What it is not
+
+The server carries **names of content, never content**. A `.torrent` file and a
+magnet link describe what to fetch; the fetching itself still goes through
+`net::Transport` and nothing else. The killswitch is untouched — see
+`include/net/http_server.hpp`.
+
+Two limits are enforced rather than documented: connections from outside the
+private address ranges are closed without a reply, and request bodies are capped.
+The whole thing switches off from the Settings tab, or with **A** in the Remote
+tab.
+
+### The other three ways in
+
+- **A** in the Torrents tab opens a `.torrent` picker on the card. It lists
+  directories and `.torrent` files and nothing else — a Switch SD card holds tens
+  of thousands of files, and showing them all would bury what you came for. **A**
+  enters or adds, **Y** adds every `.torrent` in the folder at once, **B** goes up
+  one level and only closes at the top.
+- **`sdmc:/torfoil/watch`** is scanned every five seconds. Drop a `.torrent` in
+  it — by FTP, from a card reader, from anywhere — and it is added on its own,
+  then moved to `inbox`. Moved, not copied: leaving it there would re-add it
+  forever. A file that is rejected is renamed `.refuse`, for the same reason, and
+  the reason lands in the log.
+- **X** opens the system keyboard. Fine for a short link.
 - **`sdmc:/torfoil/magnets.txt`**, one link per line, then **ZL** in the Torrents
-  tab. This is the normal route: prepare the file on a PC (SD card in a reader,
-  or over FTP with `ftpd`/sys-ftpd to keep the console running) and everything is
-  added at once. The file is created empty on first launch. Accepted links are
-  removed from it; rejected ones stay, with the reason as a comment, so
-  re-importing never creates duplicates.
+  tab. Prepare the file on a PC and everything is added at once. The file is
+  created empty on first launch. Accepted links are removed from it; rejected ones
+  stay, with the reason as a comment, so re-importing never creates duplicates.
 
 ## Why everything is written from scratch
 
@@ -65,6 +156,7 @@ Typing a magnet on a virtual keyboard is painful, so there are two ways in.
 | Torrent engine | `libtorrent` means Boost and 200k lines, with no devkitPro port. qBittorrent is only a GUI on top of it: there is no engine to extract. |
 | VPN | No TUN device and no kernel WireGuard on Horizon. → **userspace** WireGuard over the **lwIP** stack (NO_SYS mode). |
 | Crypto | devkitPro's mbedtls is built without Everest X25519. → X25519, BLAKE2s and ChaCha20-Poly1305 ported to portable C, which also makes them testable on a PC. |
+| QR code | Every library is a build-system dependency for one 25×25 grid. → ~380 lines, byte mode, level M, versions 1 to 6. Stopping at 6 removes the version-information block and the two-block-group case from the spec, and still holds 106 bytes — four times what a LAN URL needs. |
 
 ## Where peers come from
 
@@ -96,7 +188,17 @@ tunnel.
         ├───────────────────────────────────────────┤
         │  Storage (SD)  ·  Installer (ncm/ns)       │
         └───────────────────────────────────────────┘
+
+        ┌───────────────────────────────────────────┐
+        │  HttpServer (LAN)  →  Session commands     │  phone import
+        └───────────────────────────────────────────┘
 ```
+
+The phone server is drawn apart on purpose: it is the one socket in the program
+that does not come from `net::Transport`, because it does not go out. It listens
+on the console's own Wi-Fi interface and pushes into the same command queue the
+UI uses. Routing it through the tunnel would send it to Mullvad instead of to the
+living room.
 
 **The killswitch is structural.** The engine never opens a socket itself; it asks
 `net::Transport` for one. In VPN mode the tunnel is the only transport ever
@@ -111,11 +213,33 @@ The core depends on neither libnx nor the hardware, and builds with g++:
 bash tests/run.sh
 ```
 
-155 assertions under AddressSanitizer and UBSan: SHA-1, bencode, magnet, picker,
+194 assertions under AddressSanitizer and UBSan: SHA-1, bencode, magnet, picker,
 storage, multi-file boundaries, PFS0/NCA/CNMT parsing, plus the crypto checked
 against the **RFC 7693** (BLAKE2s), **RFC 8439** (ChaCha20-Poly1305) and
 **RFC 7748** (X25519) vectors, plus a full WireGuard handshake between two
 instances, replay and tampering included.
+
+Eight of them guard the translation table, and they are worth more than their
+count suggests: 1,449 strings are checked for emptiness, and every key's format
+specifiers are compared across all seven languages. That second check is the one
+that matters — `trf()` passes the same arguments whatever the language, so a `%s`
+that became `%d` in a single column reads a pointer as an integer. It would
+misbehave *only* for the users of that language, which is exactly the kind of bug
+nobody finds by looking. The test was verified against a deliberately sabotaged
+table before being trusted.
+
+The phone import brings 31 more. Two of them matter more than the rest:
+
+- the QR Reed-Solomon block is checked against the published reference vector,
+  which is the only part of the encoding no one can judge by eye;
+- every version is checked to leave *exactly* the number of free modules the
+  standard specifies. A misplaced service pattern shifts the whole bit stream by
+  one module and produces a code that is perfectly plausible on screen and
+  unreadable by every camera — the failure mode with no error message.
+
+The multipart parser is tested with two files and a text field in one submission,
+binary payloads with embedded zero bytes included: that is literally what an
+iPhone sends when several files are picked at once.
 
 ### Testing the VPN for real
 
@@ -195,10 +319,29 @@ sources into the Linux filesystem before compiling, because under WSL building
 directly from `/mnt/c` is very slow. Set `TORFOIL_SRC` to override the source
 location.
 
+`make` alone works too, from any shell that has the toolchain on its `PATH`, and
+produces `torfoil.nro`. `make -f Makefile.diag` builds the text-console variant.
+
+The homebrew menu icon is generated, not committed as an opaque binary:
+
+```bash
+python tools/make_icon.py   # écrit icon.jpg, repris automatiquement par le Makefile
+```
+
 ## Known constraints
 
 - **Console sleeps → download stops.** `appletSetAutoSleepDisabled` is forced
   during transfers, so the screen must stay on.
+- **Remote access needs the same network.** The console and the phone must be on
+  the same Wi-Fi; the server answers private addresses only. Guest networks and
+  "client isolation" on the router block it, and there is nothing the console can
+  do about that. Sleep also takes the server down with the rest of the network,
+  and no transfer is running to keep the console awake — so keep the Remote tab in
+  view while you send.
+- **Plain HTTP on the LAN.** No certificate can be issued for `192.168.x.y`, so
+  the page is unencrypted. Consequence worth knowing: Safari treats it as an
+  insecure context and the clipboard API is unavailable, which is why the page has
+  no *Paste* button — long-press and paste into the field works normally.
 - **Applet mode gives ~448 MB of heap.** The engine streams (16 KB blocks, SHA-1
   in 64 KB chunks). An NSP forwarder grants full RAM and much better throughput.
 - **Mullvad dropped port forwarding** in 2023: downloads are normal, seeding is
@@ -221,13 +364,18 @@ location.
 
 | Component | Status |
 |---|---|
-| Crypto, bencode, magnet, picker, storage, PFS0, NCA, CNMT | 155 tests under ASan/UBSan |
+| Crypto, bencode, magnet, picker, storage, PFS0, NCA, CNMT | 194 tests under ASan/UBSan |
+| QR encoding, HTTP and multipart parsing | Covered by those tests; **the remote import as a whole has not been run on hardware** |
+| Translation table, all 7 languages | 1,449 strings checked empty-free and format-consistent |
+| Console language detection, settings redesign | Compiles and builds; **not yet seen on hardware** |
 | Multi-file torrents, piece boundary mid-file | Proven: exact bytes on both sides |
 | Peer discovery (DHT) | Proven on PC: 489 peers, no tracker |
 | Full download | Proven on PC: 2.44 GB at 8.1 MB/s, SHA-1 verified |
 | Throughput on console | 3 MB/s without the VPN, measured on hardware |
 | Resume after shutdown | Proven on PC: resumes without re-reading everything |
 | Startup, UI, keyboard, `magnets.txt` | Verified on console |
+| `torfoil.nro` and `torfoil-diag.nro` build | Both link clean with devkitA64, no warnings |
+| `.torrent` picker, watch folder, details panel | Compiled and reviewed; **not yet run on hardware** |
 | libnx sockets | Verified on console |
 | Mullvad login, relays, WireGuard tunnel | Verified on console, tunnel up |
 | Files > 4 GB (FAT32) | Verified on console: a 23 GB and a 12.5 GB file written to a FAT32 card |
@@ -246,6 +394,28 @@ Two things are still open. Throughput over the VPN on this build has not been
 measured, and 3 MB/s on a 60 Mbps line leaves headroom: the next candidates are
 the socket pool settings (`sb_efficiency`, `num_bsd_sessions`) and the cost of
 software ChaCha20-Poly1305 on every tunnelled packet.
+
+### Fixed by reading the code
+
+These were found by inspection, not by a crash. Each one is the kind that makes
+the program merely *look* wrong, which is why none of them had been reported.
+
+| Symptom | Actual cause |
+|---|---|
+| **`make` failing after everything compiled and linked** | `ROMFS := romfs` pointed at a directory that does not exist and never did — the program embeds no assets on purpose. Every source built, the ELF linked, and then `build_romfs` failed on the very last step with "Failed to open .../romfs!". |
+| No way to add a `.torrent` at all | The console could parse them — `add_torrent_file` existed and worked — but nothing in the interface ever called it. The one format you actually download from a browser had no door. |
+| French that read like a translation of English | *Choke* had been rendered literally as *étrangler* throughout, which is not what a French torrent client says and reads as violence rather than protocol. "vous serez étranglé plus souvent" became "les autres vous serviront moins"; "%u pairs (%u refusent)" became "(%u bloquent)"; "Vérification passée" — ambiguous between *passed* and *skipped* — became "Vérification ignorée". Plus a plain grammar error, "du essaim" for "de l'essaim". |
+| Settings that looked like a terminal | `[x]` and `[ ]` in a monospace column, one flat list running off the bottom of the screen. Now: sliding switches whose position reads at a glance, section headers, and card rows whose background changes with focus while nothing moves. |
+| The whole library greyed out as "in progress" | The match was on the torrent's save path — which is the shared download folder, identical for every torrent. One unfinished download therefore claimed every file on the card, including finished, installable packages. Now matched on the torrent's own file or folder. |
+| **B** silently skipping a verification that mattered | The "skip check" flag was cleared only when a scan ended. Pressing **B** outside any verification left it armed forever, and it fired on the next torrent that legitimately needed re-reading. Cleared on entry now. |
+| A dead tracker staying dead for 30 minutes | A failed announce was rescheduled 30 minutes out, like a successful one. And the interval the tracker asks for was parsed, then ignored. Failure now retries in 5 minutes; success follows the tracker's own interval. |
+| Trackers seeing a brand-new client every half hour | Every announce carried `event=started`, and `completed` was never sent at all. Each is now sent once, when it means something. |
+| "Torrent added" when nothing was added | A duplicate is dropped by the engine, but the call still reported success — so `magnets.txt` import counted it, and the phone page would too. Both entry points now check first. |
+| Losing your place in a list by glancing at another tab | One scroll position shared by every tab, reset on each switch. One per tab now. |
+| Self-test results invisible | The Settings tab stacked everything down one column and ran past the bottom of the screen at the fifth checkbox. The diagnostic output — the thing you press **Y** for — fell off the edge. Two columns now. |
+| Long errors unreadable | The toast sized itself to its text with no ceiling, so the longest messages, the ones you need most, ran off both edges of the screen. |
+| A torrent gone by accident | **ZR** removed immediately, with no confirmation and no way to delete the files. It now asks, and offers both outcomes. |
+| CPU burnt in the piece picker | Choosing the next piece scanned all 17 000 pieces of a 35 GB torrent, per peer, per tick — a million iterations to pick a number a 256-piece sample gives just as well. And the pending-block list was a vector scanned end to end on every 16 KB block received. |
 
 ### Fixed after testing on hardware
 
@@ -279,7 +449,7 @@ in the package.
 ### Diagnostic log
 
 `sdmc:/torfoil/torfoil.log` records startup, service status, storage errors, VPN
-activity and installs. This is the file to attach when something goes wrong on
+activity, phone imports and installs. This is the file to attach when something goes wrong on
 hardware.
 
 A write failure now appears with its full context: system cause, target file,

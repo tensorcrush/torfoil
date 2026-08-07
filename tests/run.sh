@@ -8,9 +8,11 @@ g++ -std=gnu++17 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     -fsanitize=address,undefined \
     -Iinclude \
     tests/host_tests.cpp \
-    source/util/bytes.cpp source/util/sha1.cpp source/util/log.cpp \
+    source/util/bytes.cpp source/util/sha1.cpp source/util/log.cpp source/util/qr.cpp \
     source/bt/bencode.cpp source/bt/magnet.cpp source/bt/metainfo.cpp \
     source/bt/piece_picker.cpp source/bt/storage.cpp \
+    source/net/http_parse.cpp source/net/http_server.cpp \
+    source/ui/lang.cpp \
     source/install/archive.cpp source/install/nca.cpp source/install/keys.cpp \
     source/install/verify.cpp \
     -lmbedcrypto \
