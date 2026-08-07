@@ -229,15 +229,18 @@ location.
 | Startup, UI, keyboard, `magnets.txt` | Verified on console |
 | libnx sockets | Verified on console |
 | Mullvad login, relays, WireGuard tunnel | Verified on console, tunnel up |
-| Files > 4 GB (FAT32) | Fixed, **not yet verified on console** |
+| Files > 4 GB (FAT32) | Verified on console: a 23 GB and a 12.5 GB file written to a FAT32 card |
 | Reading an NSP: encrypted NCA → CNMT → contents | Proven on PC with a forged, encrypted package |
 | Package verification (**Y**) | Proven: a single flipped bit or a truncated file is caught |
 | `ncm` writes to system memory | Not exercised here, **checkable via the self-test (Y)** |
 | A >4 GB file on a real card | Not exercised here, **checkable via the self-test (Y)** |
 | Traffic actually leaving through the VPN | Not exercised here, **checkable via the self-test (Y)** |
 
-Throughput on the console is still below what the link allows, and remains the
-main open problem. See the table below for what has been fixed so far.
+Every build in the table above was run on real hardware. Throughput on the
+console is still the main open problem: measured at 70 kB/s, then 200 kB/s with
+the VPN on and 800 kB/s without, as the fixes below landed one by one. The last
+two (a 64 kB receive window and moving hashing and disk writes off the network
+thread) ship in this build, and their effect has not been measured yet.
 
 ### Fixed after testing on hardware
 
