@@ -2,7 +2,7 @@
 
 A native BitTorrent client for the Nintendo Switch (Atmosphère), with a built-in
 **Mullvad WireGuard tunnel** and direct `.nsp` / `.xci` installation through
-`ncm`/`ns` — like Tinfoil, except the source is a torrent.
+`ncm`/`ns`. Like Tinfoil, except the source is a torrent.
 
 > The code and the in-app interface are in French. Translation contributions are
 > welcome.
@@ -27,7 +27,7 @@ Lockpick_RCM). Downloading does not.
 
 Active torrents **resume automatically on startup**: each magnet link is kept in
 `sdmc:/torfoil/downloads/.<hash>.magnet`. Without this, closing the application
-silently abandoned the download — the files stayed on the card, half finished,
+silently abandoned the download: the files stayed on the card, half finished,
 and nothing ever picked them up again.
 
 ### Privacy (Settings tab)
@@ -40,7 +40,7 @@ gets enabled by accident, then blamed for making the app slow.
 | Require VPN | No transport is handed to the engine without a tunnel. Nothing can leave, even if the VPN drops mid-download. |
 | Encrypted trackers only | Rejects plain `http://` announces, which carry the info_hash in the clear. Fewer usable trackers. |
 | Disable DHT | No more plaintext UDP queries. Far fewer peers found. |
-| Disable PEX | Incoming messages are ignored *and* support is no longer advertised — otherwise the peer already knows you take part. |
+| Disable PEX | Incoming messages are ignored *and* support is no longer advertised, since otherwise the peer already knows you take part. |
 | Share nothing | Chokes every peer up front. You will be choked back: the protocol rewards reciprocity. |
 
 Downloads land in `sdmc:/torfoil/downloads`.
@@ -55,7 +55,7 @@ Typing a magnet on a virtual keyboard is painful, so there are two ways in.
   tab. This is the normal route: prepare the file on a PC (SD card in a reader,
   or over FTP with `ftpd`/sys-ftpd to keep the console running) and everything is
   added at once. The file is created empty on first launch. Accepted links are
-  removed from it; rejected ones stay, with the reason as a comment — so
+  removed from it; rejected ones stay, with the reason as a comment, so
   re-importing never creates duplicates.
 
 ## Why everything is written from scratch
@@ -101,7 +101,7 @@ tunnel.
 **The killswitch is structural.** The engine never opens a socket itself; it asks
 `net::Transport` for one. In VPN mode the tunnel is the only transport ever
 instantiated, and if it drops, `ready()` returns `false` and no connection can be
-created. There is no cleartext path to "remember to close" — it does not exist.
+created. There is no cleartext path to "remember to close": it does not exist.
 
 ## Tests
 
@@ -112,7 +112,7 @@ bash tests/run.sh
 ```
 
 155 assertions under AddressSanitizer and UBSan: SHA-1, bencode, magnet, picker,
-storage, multi-file boundaries, PFS0/NCA/CNMT parsing — and the crypto checked
+storage, multi-file boundaries, PFS0/NCA/CNMT parsing, plus the crypto checked
 against the **RFC 7693** (BLAKE2s), **RFC 8439** (ChaCha20-Poly1305) and
 **RFC 7748** (X25519) vectors, plus a full WireGuard handshake between two
 instances, replay and tampering included.
@@ -148,7 +148,7 @@ code? This settles it, with no console:
 bash tests/dht_live.sh dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c
 ```
 
-The info_hash alone is enough — the 40 characters after `btih:` in the magnet,
+The info_hash alone is enough: the 40 characters after `btih:` in the magnet,
 which is all the DHT needs. **Prefer this form from PowerShell**, as it contains
 no special characters.
 
@@ -167,7 +167,7 @@ on Big Buck Bunny: **489 peers in 55 s, with no tracker at all**.
 ### Testing a full download
 
 Finding peers does not prove you can talk to them. This exercises the entire
-chain — DHT, connection, handshake, metadata, piece selection, SHA-1
+chain: DHT, connection, handshake, metadata, piece selection, SHA-1
 verification, disk writes:
 
 ```bash
@@ -191,7 +191,7 @@ bash build.sh
 ```
 
 Requires devkitA64 + libnx (`DEVKITPRO=/opt/devkitpro`). `build.sh` copies the
-sources into the Linux filesystem before compiling — under WSL, building
+sources into the Linux filesystem before compiling, because under WSL building
 directly from `/mnt/c` is very slow. Set `TORFOIL_SRC` to override the source
 location.
 
@@ -213,7 +213,7 @@ location.
   one at mullvad.net.
 - **China / Russia**: bare WireGuard is recognisable by DPI. The transport layer
   is designed to host udp2tcp, but that is not wired up yet.
-- The WireGuard private key is stored in cleartext in `sdmc:/torfoil/vpn.cfg` —
+- The WireGuard private key is stored in cleartext in `sdmc:/torfoil/vpn.cfg`, as
   the console offers homebrew no keystore. If the card is lost, revoke the device
   from the Mullvad site.
 
@@ -223,18 +223,18 @@ location.
 |---|---|
 | Crypto, bencode, magnet, picker, storage, PFS0, NCA, CNMT | 155 tests under ASan/UBSan |
 | Multi-file torrents, piece boundary mid-file | Proven: exact bytes on both sides |
-| Peer discovery (DHT) | Proven on PC — 489 peers, no tracker |
-| Full download | Proven on PC — 2.44 GB at 8.1 MB/s, SHA-1 verified |
-| Resume after shutdown | Proven on PC — resumes without re-reading everything |
+| Peer discovery (DHT) | Proven on PC: 489 peers, no tracker |
+| Full download | Proven on PC: 2.44 GB at 8.1 MB/s, SHA-1 verified |
+| Resume after shutdown | Proven on PC: resumes without re-reading everything |
 | Startup, UI, keyboard, `magnets.txt` | Verified on console |
 | libnx sockets | Verified on console |
-| Mullvad login, relays, WireGuard tunnel | Verified on console — tunnel up |
+| Mullvad login, relays, WireGuard tunnel | Verified on console, tunnel up |
 | Files > 4 GB (FAT32) | Fixed, **not yet verified on console** |
 | Reading an NSP: encrypted NCA → CNMT → contents | Proven on PC with a forged, encrypted package |
 | Package verification (**Y**) | Proven: a single flipped bit or a truncated file is caught |
-| `ncm` writes to system memory | Not exercised here — **checkable via the self-test (Y)** |
-| A >4 GB file on a real card | Not exercised here — **checkable via the self-test (Y)** |
-| Traffic actually leaving through the VPN | Not exercised here — **checkable via the self-test (Y)** |
+| `ncm` writes to system memory | Not exercised here, **checkable via the self-test (Y)** |
+| A >4 GB file on a real card | Not exercised here, **checkable via the self-test (Y)** |
+| Traffic actually leaving through the VPN | Not exercised here, **checkable via the self-test (Y)** |
 
 Throughput on the console is still below what the link allows, and remains the
 main open problem. See the table below for what has been fixed so far.
@@ -244,7 +244,7 @@ main open problem. See the table below for what has been fixed so far.
 | Symptom | Actual cause |
 |---|---|
 | "SD write failed" | A Switch game exceeds 4 GB, and such a file cannot exist on a FAT32 card. Switched to Horizon *concatenation files*, which present a split directory as a single file. |
-| "SD write failed", again | The fix above only applied to missing files. Ordinary files left by the previous version stayed ordinary — still capped at 4 GB — and opening them reported nothing. The code now tests whether an existing file can reach its final size, and recreates it otherwise. |
+| "SD write failed", again | The fix above only applied to missing files. Ordinary files left by the previous version stayed ordinary (still capped at 4 GB) and opening them reported nothing. The code now tests whether an existing file can reach its final size, and recreates it otherwise. |
 | Library working "halfway" | In-progress downloads showed up as installable. They are now greyed out with their progress, and the recursive scan no longer stalls the display every 10 s. |
 | One file accepted, the other "not an NSP" | A torrent downloads its pieces out of order: a file can reach its final size before its header has arrived. The library now reads the first bytes and says so, instead of blaming the file. |
 | Install freezing the whole app | It was a modal dialog with no way to switch tabs. It is now a banner: installation runs in the background like a download, **B** cancels. |
@@ -253,9 +253,9 @@ main open problem. See the table below for what has been fixed so far.
 | Ridiculous throughput | A block that was never served stayed counted as "in flight" forever: the peer looked saturated and was never sent another request. Peers died one by one. |
 | Few peers | The network driver allocates a shared pool; 32 KB of receive buffer per socket exhausted it after about thirty connections, with no error reported. |
 | Slow SD writes | Every piece was read back from the card to be verified. It is now assembled in memory, hashed there, then written in one go. |
-| Throughput collapsing after two minutes | We waited indefinitely on peers that were choking us. After 40 s without a byte, they are dropped in favour of others — worth 1 → 8 MB/s. |
+| Throughput collapsing after two minutes | We waited indefinitely on peers that were choking us. After 40 s without a byte, they are dropped in favour of others, worth 1 to 8 MB/s. |
 | Endless verification at startup | Files are preallocated to their final size, so "the file exists" no longer proved anything: 35 GB were re-hashed on launch. The resume point is now written empty at creation, and **B** skips a legitimate re-scan. |
-| Peers capped at 3–5 | The socket ceiling was a one-way ratchet armed by an `errno` that was not its own — lwIP never sets `errno`, so a stale value from an unrelated UDP send was read as "out of sockets". |
+| Peers capped at 3–5 | The socket ceiling was a one-way ratchet armed by an `errno` that was not its own; lwIP never sets `errno`, so a stale value from an unrelated UDP send was read as "out of sockets". |
 | ~130 KB/s per peer | A TCP connection cannot exceed its receive window divided by the round-trip time. At 16 KB and ~125 ms, that is exactly 131 KB/s. Raised to 64 KB, the libnx default. |
 | Window collapsing on every completed piece | SHA-1 over 2 MiB plus the SD write ran on the network loop: for tens of milliseconds nobody read the sockets, they overflowed, and TCP read those losses as congestion. Piece completion now runs on a dedicated thread behind a bounded queue. |
 
@@ -264,7 +264,7 @@ main open problem. See the table below for what has been fixed so far.
 **Y** in the library replays the whole installation chain *without writing
 anything*: keys, container, meta NCA decryption, CNMT, presence and size of each
 content, then a full SHA-256 recomputation of each. An incomplete or damaged
-package is caught before anything touches system memory — and if an install then
+package is caught before anything touches system memory; and if an install then
 fails despite a successful verification, the problem is in the installation, not
 in the package.
 
@@ -274,7 +274,7 @@ in the package.
 activity and installs. This is the file to attach when something goes wrong on
 hardware.
 
-A write failure now appears with its full context — system cause, target file,
+A write failure now appears with its full context: system cause, target file,
 piece, absolute offset:
 
 ```
@@ -287,7 +287,7 @@ piece, absolute offset:
 Without that context, "write failed" points at nothing: it is what sent us
 looking at a full SD card while the real problem was FAT32's size limit.
 
-### Self-test — what only the console can settle
+### Self-test: what only the console can settle
 
 Three things cannot be checked anywhere else: that an SD card accepts a file over
 4 GB, that the installation services agree to write, and that traffic really
@@ -298,7 +298,7 @@ itself: **Settings tab, Y**.
 |---|---|
 | SD card | Creates a split file, writes 64 KB **at 4 GB + 4 KB**, reads it back, compares, deletes |
 | Installation | Reserves an `ncm` placeholder, writes 128 KB, checks the size, deletes |
-| VPN | Queries `am.i.mullvad.net` through the active transport — Mullvad answers, not us |
+| VPN | Queries `am.i.mullvad.net` through the active transport, so Mullvad answers, not us |
 
 Nothing is installed, nothing is kept, and every result also goes to the log. A
 failure arrives with its system error code, which is usually enough to identify
@@ -313,7 +313,7 @@ from everything display-related. Results land in `sdmc:/torfoil/diagnostic.log`.
 Tested, and the answer was unambiguous: on the development machine, yuzu crashes
 (0xC0000005) on a **twelve-line hello world** just as it does on Torfoil. The log
 shows the NRO loaded, then the emulator synthesising font archives, then the
-exit — before any guest code runs. No homebrew runs at all, so no emulator can
+exit, before any guest code runs. No homebrew runs at all, so no emulator can
 validate anything here. That is what motivated the built-in self-test.
 
 ## Prior art
@@ -325,7 +325,7 @@ tuning was a useful reference.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE). Bundled lwIP is BSD-3-Clause.
+MIT, see [LICENSE](LICENSE). Bundled lwIP is BSD-3-Clause.
 
 ## Disclaimer
 
