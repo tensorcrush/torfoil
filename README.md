@@ -225,6 +225,7 @@ location.
 | Multi-file torrents, piece boundary mid-file | Proven: exact bytes on both sides |
 | Peer discovery (DHT) | Proven on PC: 489 peers, no tracker |
 | Full download | Proven on PC: 2.44 GB at 8.1 MB/s, SHA-1 verified |
+| Throughput on console | 3 MB/s without the VPN, measured on hardware |
 | Resume after shutdown | Proven on PC: resumes without re-reading everything |
 | Startup, UI, keyboard, `magnets.txt` | Verified on console |
 | libnx sockets | Verified on console |
@@ -236,11 +237,15 @@ location.
 | A >4 GB file on a real card | Not exercised here, **checkable via the self-test (Y)** |
 | Traffic actually leaving through the VPN | Not exercised here, **checkable via the self-test (Y)** |
 
-Every build in the table above was run on real hardware. Throughput on the
-console is still the main open problem: measured at 70 kB/s, then 200 kB/s with
-the VPN on and 800 kB/s without, as the fixes below landed one by one. The last
-two (a 64 kB receive window and moving hashing and disk writes off the network
-thread) ship in this build, and their effect has not been measured yet.
+Every build in the table above was run on real hardware, and each fix moved the
+number: 70 kB/s, then 200 kB/s over the VPN, then 800 kB/s without it, and
+**3 MB/s** once the receive window went from 16 kB to 64 kB. That last jump is
+almost exactly the factor of four the window ratio predicts.
+
+Two things are still open. Throughput over the VPN on this build has not been
+measured, and 3 MB/s on a 60 Mbps line leaves headroom: the next candidates are
+the socket pool settings (`sb_efficiency`, `num_bsd_sessions`) and the cost of
+software ChaCha20-Poly1305 on every tunnelled packet.
 
 ### Fixed after testing on hardware
 
