@@ -359,12 +359,13 @@ public:
 
     // Un pair nous a envoyé son carnet d'adresses (ut_pex).
     void on_peers_discovered(PeerConnection&, const std::vector<net::Endpoint>& found) override {
-        if (!session_.privacy().enable_pex) return;
+        if (!session_.privacy().enable_pex || meta_.is_private) return;
         add_peers(found);
     }
 
     const util::Hash160& info_hash() const { return meta_.info_hash; }
     bool needs_peers() const { return known_peers_.size() < 60; }
+    bool is_private() const { return meta_.is_private; }
 
     // ---- état ----
 
@@ -643,7 +644,8 @@ private:
 
             auto peer = std::make_unique<PeerConnection>(transport, *this, ep, meta_.info_hash,
                                                          session_.peer_id_,
-                                                         session_.privacy().enable_pex);
+                                                         session_.privacy().enable_pex &&
+                                                             !meta_.is_private);
 
             // errno est global et rémanent : sans cette remise à zéro, on lit
             // ici l'échec d'une opération sans rapport (un envoi UDP du tunnel,
@@ -1245,6 +1247,11 @@ void Session::engine_loop() {
 
         if (rules.enable_dht) {
             for (auto& t : torrents_) {
+                // BEP 27 : un torrent marqué privé ne doit chercher ses pairs
+                // que chez son tracker. Passer par le DHT ou PEX révèle son
+                // contenu au reste du réseau et fait bannir le compte, ce qui
+                // est bien pire qu'un torrent lent.
+                if (t->is_private()) continue;
                 if (t->needs_peers()) dht_.find_peers(t->info_hash());
             }
             dht_.tick(now);
