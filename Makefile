@@ -23,7 +23,7 @@ SOURCES  := source source/bt source/net source/net/wg source/util source/ui \
             source/vpn source/diag \
             third_party/lwip/src/core third_party/lwip/src/core/ipv4
 DATA     := data
-INCLUDES := include third_party/lwip/src/include
+INCLUDES := include third_party/lwip/src/include third_party/nanosvg
 
 # Pas de ROMFS, et c'est délibéré : l'application n'embarque aucune ressource
 # (la police vient de pl:u). Le laisser pointer vers un dossier absent faisait

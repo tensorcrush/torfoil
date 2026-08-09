@@ -29,7 +29,7 @@ BIN="${TMPDIR:-/tmp}/torfoil-host"
 # host/include vient EN PREMIER : c'est ce qui fait que #include <switch.h>
 # trouve le faux, et que pas une ligne du programme n'a besoin d'être adaptée.
 g++ -std=gnu++17 -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
-    -I host/include -I include -I third_party/lwip/src/include \
+    -I host/include -I include -I third_party/lwip/src/include -I third_party/nanosvg \
     host/switch_stub.cpp \
     source/main.cpp \
     source/ui/*.cpp \

@@ -24,5 +24,16 @@ SOFTWARE.
 
 Code tiers inclus dans ce dépôt :
 
-  third_party/lwip/  — lwIP, licence BSD 3 clauses.
-                       Voir third_party/lwip/COPYING.
+  third_party/lwip/     — lwIP, licence BSD 3 clauses.
+                          Voir third_party/lwip/COPYING.
+
+  third_party/nanosvg/  — NanoSVG, © 2013-2014 Mikko Mononen, licence zlib.
+                          L'avis de licence figure en tête de chaque en-tête.
+
+  assets/icons/         — Material Symbols, © Google, licence Apache 2.0.
+  source/ui/icons_data.cpp  https://github.com/google/material-design-icons
+
+                          Licence Apache 2.0, texte intégral :
+                          http://www.apache.org/licenses/LICENSE-2.0
+                          Les icônes sont redistribuées sans modification autre
+                          que leur mise en forme pour la compilation.
