@@ -70,6 +70,11 @@ int main(int argc, char* argv[]) {
     for (const diag::Lp2pProbeStep& step : diag::probe_lp2p().steps) {
         line("  %s%-26s[0m %s", step.ok ? "[32m" : "[31m", step.label.c_str(),
              step.detail.c_str());
+        // Et dans le journal. La première version n'écrivait qu'à l'écran :
+        // les résultats existaient, défilaient, et n'étaient nulle part quand
+        // on les demandait.
+        util::log_fmt("lp2p %-26s %s %s", step.label.c_str(), step.ok ? "OK" : "ECHEC",
+                      step.detail.c_str());
     }
     line("");
 

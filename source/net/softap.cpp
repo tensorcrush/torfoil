@@ -103,6 +103,7 @@ bool SoftAp::start(std::string* err) {
             *err = "lp2p indisponible [" + result_code(rc) +
                    "] — firmware antérieur à 11.0.0 ?";
         }
+        util::log_line("point d'accès : " + (err ? *err : std::string()));
         return false;
     }
     service_open_ = true;
@@ -140,9 +141,9 @@ bool SoftAp::start(std::string* err) {
             // Ne pas suggérer de cause tant qu'on n'en connaît aucune : la
             // première version disait « Wi-Fi coupé ? », ce qui envoyait
             // vérifier une chose qui allait très bien.
-            *err = "création du réseau refusée [" + result_code(rc) +
-                   "] — lancer torfoil-diag.nro pour savoir pourquoi";
+            *err = "création du réseau refusée [" + result_code(rc) + "]";
         }
+        util::log_line("point d'accès : " + (err ? *err : std::string()));
         stop();
         return false;
     }

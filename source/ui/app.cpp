@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "diag/lp2p_probe.hpp"
 #include "util/bytes.hpp"
 #include "util/clock.hpp"
 #include "util/log.hpp"
@@ -401,7 +402,20 @@ void App::handle_input(uint64_t now_ms) {
                     if (phone_.start(session_, &err)) {
                         toast("Point d'accès levé — Internet coupé le temps de l'import");
                     } else {
-                        toast(err, true);
+                        // Un échec ici ne se rejoue pas : personne ne va
+                        // relancer un autre programme pour comprendre. La
+                        // sonde part donc immédiatement, à l'endroit et au
+                        // moment de la panne, et pose ses dix lignes dans le
+                        // journal. Elle prend quelques secondes ; c'est le prix
+                        // d'un diagnostic qu'on n'aura pas à redemander.
+                        toast(err + " — diagnostic en cours…", true);
+                        draw(util::now_ms());
+                        util::log_line("point d'accès refusé, sonde lp2p :");
+                        for (const diag::Lp2pProbeStep& step : diag::probe_lp2p().steps) {
+                            util::log_fmt("  lp2p %-26s %s %s", step.label.c_str(),
+                                          step.ok ? "OK" : "ECHEC", step.detail.c_str());
+                        }
+                        toast(err + " — détail dans torfoil.log", true);
                     }
                 } else {
                     phone_.stop();
