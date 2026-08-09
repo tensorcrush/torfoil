@@ -45,15 +45,37 @@ struct Attempt {
     s64 local_communication_id;   // 0 = laisser lp2p lire le NACP
     u16 frequency;
     s8 member_count_max;
+    // Ferme le pilote socket avant l'essai. Hypothèse à écarter : la console
+    // n'a qu'une radio, et elle est prise par la connexion au routeur. Un
+    // point d'accès ne peut peut-être pas naître tant que quelqu'un tient
+    // l'interface — c'est d'ailleurs pour cela que l'Album coupe Internet.
+    bool release_socket;
+};
+
+// Configuration minuscule, juste de quoi remettre le pilote debout après un
+// essai qui l'avait fermé. Le diagnostic ne s'en sert pas pour télécharger.
+const SocketInitConfig kRestoreConfig = {
+    .tcp_tx_buf_size = 0x1000,
+    .tcp_rx_buf_size = 0x4000,
+    .tcp_tx_buf_max_size = 0x20000,
+    .tcp_rx_buf_max_size = 0x40000,
+    .udp_tx_buf_size = 0x2400,
+    .udp_rx_buf_size = 0xA500,
+    .sb_efficiency = 4,
+    .num_bsd_sessions = 3,
+    .bsd_service_type = BsdServiceType_User,
 };
 
 Lp2pProbeStep run_one(const Attempt& attempt) {
     Lp2pProbeStep step;
     step.label = attempt.label;
 
+    if (attempt.release_socket) socketExit();
+
     Result rc = lp2pInitialize(attempt.service);
     if (R_FAILED(rc)) {
         step.detail = "lp2pInitialize " + code(rc);
+        if (attempt.release_socket) socketInitialize(&kRestoreConfig);
         return step;
     }
 
@@ -73,6 +95,7 @@ Lp2pProbeStep run_one(const Attempt& attempt) {
         if (R_FAILED(rc)) {
             step.detail = "SetPassphrase " + code(rc);
             lp2pExit();
+            if (attempt.release_socket) socketInitialize(&kRestoreConfig);
             return step;
         }
     } else {
@@ -103,6 +126,7 @@ Lp2pProbeStep run_one(const Attempt& attempt) {
     }
 
     lp2pExit();
+    if (attempt.release_socket) socketInitialize(&kRestoreConfig);
     return step;
 }
 
@@ -117,13 +141,16 @@ Lp2pProbeReport probe_lp2p() {
     constexpr s64 kKnownId = 0x0100165003504000;
 
     const Attempt attempts[] = {
-        {"WPA2, lp2p:app, NACP",       Lp2pServiceType_App,    true,  0,         24, 4},
-        {"WPA2, lp2p:app, id force",   Lp2pServiceType_App,    true,  kKnownId,  24, 4},
-        {"WPA2, lp2p:app, 5 GHz",      Lp2pServiceType_App,    true,  0,         50, 4},
-        {"WPA2, lp2p:app, 1 membre",   Lp2pServiceType_App,    true,  0,         24, 1},
-        {"Nintendo, lp2p:app",         Lp2pServiceType_App,    false, 0,         24, 4},
-        {"WPA2, lp2p:sys",             Lp2pServiceType_System, true,  0,         24, 4},
-        {"Nintendo, lp2p:sys",         Lp2pServiceType_System, false, 0,         24, 4},
+        {"WPA2, lp2p:app, NACP",       Lp2pServiceType_App,    true,  0,        24, 4, false},
+        {"WPA2, radio liberee",        Lp2pServiceType_App,    true,  0,        24, 4, true},
+        {"WPA2, id force",             Lp2pServiceType_App,    true,  kKnownId, 24, 4, false},
+        {"WPA2, id force + liberee",   Lp2pServiceType_App,    true,  kKnownId, 24, 4, true},
+        {"WPA2, 5 GHz",                Lp2pServiceType_App,    true,  0,        50, 4, false},
+        {"WPA2, 1 membre",             Lp2pServiceType_App,    true,  0,        24, 1, false},
+        {"Nintendo, lp2p:app",         Lp2pServiceType_App,    false, 0,        24, 4, false},
+        {"Nintendo, radio liberee",    Lp2pServiceType_App,    false, 0,        24, 4, true},
+        {"WPA2, lp2p:sys",             Lp2pServiceType_System, true,  0,        24, 4, false},
+        {"Nintendo, lp2p:sys",         Lp2pServiceType_System, false, 0,        24, 4, false},
     };
 
     for (const Attempt& attempt : attempts) report.steps.push_back(run_one(attempt));
