@@ -32,7 +32,7 @@ g++ -std=gnu++17 -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-i
     -I host/include -I include -I third_party/lwip/src/include \
     host/switch_stub.cpp \
     source/main.cpp \
-    source/ui/app.cpp source/ui/render.cpp source/ui/settings.cpp source/ui/phone.cpp \
+    source/ui/*.cpp \
     source/bt/*.cpp \
     source/net/*.cpp source/net/wg/*.cpp source/net/wg/*.c \
     source/vpn/*.cpp \

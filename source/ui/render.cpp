@@ -55,13 +55,41 @@ bool Renderer::init(std::string* err) {
         return false;
     }
 
-    // Police système de la console : rien à embarquer, et les glyphes des
-    // boutons de manette sont inclus.
+    return use_font_for(language(), err);
+}
+
+// Le chinois simplifié a sa propre police système ; tout le reste tient dans la
+// « Standard ». On ne recharge que si le type change : ouvrir quatre tailles de
+// police coûte assez cher pour ne pas le faire à chaque image.
+bool Renderer::use_font_for(Lang lang, std::string* err) {
+    const int wanted = lang == Lang::Zh ? PlSharedFontType_ChineseSimplified
+                                        : PlSharedFontType_Standard;
+    if (wanted == font_type_) return true;
+
     PlFontData font_data;
-    const Result rc = plGetSharedFontByType(&font_data, PlSharedFontType_Standard);
+    Result rc = plGetSharedFontByType(&font_data, static_cast<PlSharedFontType>(wanted));
+    if (R_FAILED(rc) && wanted != PlSharedFontType_Standard) {
+        // Console dont la police chinoise n'est pas installée : mieux vaut du
+        // texte partiellement carré que pas d'interface du tout.
+        rc = plGetSharedFontByType(&font_data, PlSharedFontType_Standard);
+    }
     if (R_FAILED(rc)) {
         if (err) *err = "police système indisponible (pl:u)";
         return false;
+    }
+
+    // Les textures en cache portent l'ancienne police : les garder afficherait
+    // un mélange des deux, les mots déjà rendus restant dans l'autre dessin.
+    for (auto& entry : cache_) {
+        if (entry.second.texture) SDL_DestroyTexture(entry.second.texture);
+    }
+    cache_.clear();
+
+    for (TTF_Font*& f : fonts_) {
+        if (f) {
+            TTF_CloseFont(f);
+            f = nullptr;
+        }
     }
 
     const FontSize sizes[] = {FontSize::Small, FontSize::Body, FontSize::Title, FontSize::Huge};
@@ -69,7 +97,10 @@ bool Renderer::init(std::string* err) {
         // Un RWops par police : SDL_ttf conserve le flux, on ne peut pas le
         // partager entre plusieurs tailles.
         SDL_RWops* rw = SDL_RWFromConstMem(font_data.address, font_data.size);
-        if (!rw) return fail("SDL_RWFromConstMem");
+        if (!rw) {
+            if (err) *err = std::string("SDL_RWFromConstMem : ") + SDL_GetError();
+            return false;
+        }
         fonts_[i] = TTF_OpenFontRW(rw, /*freesrc=*/1, pixel_size(sizes[i]));
         if (!fonts_[i]) {
             if (err) *err = std::string("TTF_OpenFontRW : ") + TTF_GetError();
@@ -77,6 +108,7 @@ bool Renderer::init(std::string* err) {
         }
     }
 
+    font_type_ = wanted;
     return true;
 }
 

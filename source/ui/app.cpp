@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "diag/lp2p_probe.hpp"
+#include "ui/lang.hpp"
 #include "util/bytes.hpp"
 #include "util/clock.hpp"
 #include "util/log.hpp"
@@ -29,15 +30,31 @@ const char* kDownloadDir = "sdmc:/torfoil/downloads";
 const char* kMagnetsFile = "sdmc:/torfoil/magnets.txt";
 const char* kSettingsFile = "sdmc:/torfoil/settings.cfg";
 
-const char* tab_label(int index) {
+std::string tab_label(int index) {
     switch (index) {
-        case 0: return "Torrents";
-        case 1: return "Bibliothèque";
-        case 2: return "Téléphone";
-        case 3: return "VPN";
-        case 4: return "Réglages";
+        case 0: return tr(Str::TabTorrents);
+        case 1: return tr(Str::TabLibrary);
+        case 2: return tr(Str::TabPhone);
+        case 3: return tr(Str::TabVpn);
+        case 4: return tr(Str::TabSettings);
     }
     return "?";
+}
+
+// L'état d'un torrent est un texte affiché, donc traduit. Le moteur, lui, garde
+// ses propres libellés français : ils partent dans le journal, où ils servent
+// aux rapports de bug et pas à l'usage courant.
+Str state_key(bt::TorrentState state) {
+    switch (state) {
+        case bt::TorrentState::FetchingMetadata: return Str::StateMetadata;
+        case bt::TorrentState::Checking: return Str::StateChecking;
+        case bt::TorrentState::Downloading: return Str::StateDownloading;
+        case bt::TorrentState::Seeding: return Str::StateSeeding;
+        case bt::TorrentState::Paused: return Str::StatePaused;
+        case bt::TorrentState::Completed: return Str::StateCompleted;
+        case bt::TorrentState::Failed: return Str::StateFailed;
+    }
+    return Str::StateMetadata;
 }
 
 Color state_color(bt::TorrentState state) {
@@ -176,7 +193,13 @@ bool App::init(std::string* err) {
     if (!session_.start(kDownloadDir, err)) return false;
 
     vpn_.load();
-    settings_.load(kSettingsFile);
+    // Le fichier absent — ou présent sans ligne « language » — signe un premier
+    // lancement. On préselectionne la langue de la console, qui est le meilleur
+    // pari, et on laisse le dernier mot à l'utilisateur.
+    const bool had_settings = settings_.load(kSettingsFile);
+    language_pending_ = !had_settings;
+    set_language(settings_.effective_language());
+    language_cursor_ = static_cast<int>(language());
     apply_settings();
     refresh_library();
     return true;
@@ -258,11 +281,11 @@ void App::refresh_library() {
 
 void App::add_magnet_flow() {
     std::string uri;
-    if (!text_input("Coller un lien magnet", "", uri)) return;
+    if (!text_input(tr(Str::KeyboardMagnet), "", uri)) return;
 
     std::string err;
     if (session_.add_magnet(uri, &err)) {
-        toast("Torrent ajouté");
+        toast(tr(Str::ToastTorrentAdded));
     } else {
         toast(err, true);
     }
@@ -275,7 +298,7 @@ void App::add_magnet_flow() {
 void App::import_magnets_file() {
     std::FILE* fp = std::fopen(kMagnetsFile, "rb");
     if (!fp) {
-        toast("Aucun fichier sdmc:/torfoil/magnets.txt", true);
+        toast(tr(Str::ToastNoMagnetsFile), true);
         return;
     }
 
@@ -323,13 +346,35 @@ void App::import_magnets_file() {
         // une erreur, et le dire autrement évite de chercher un problème absent.
         toast("magnets.txt est vide — tout est déjà importé");
     } else {
-        toast("Aucun lien accepté, raisons notées dans magnets.txt", true);
+        toast(tr(Str::ToastMagnetsNoneOk), true);
     }
 }
 
 void App::handle_input(uint64_t now_ms) {
     padUpdate(&pad_);
     const u64 down = padGetButtonsDown(&pad_);
+
+    // Tant que la langue n'est pas choisie, rien d'autre n'est atteignable :
+    // un menu qu'on ne sait pas lire ne se navigue pas.
+    if (language_pending_) {
+        const int count = static_cast<int>(Lang::kCount);
+        if (down & (HidNpadButton_Down | HidNpadButton_StickLDown)) {
+            language_cursor_ = (language_cursor_ + 1) % count;
+            set_language(static_cast<Lang>(language_cursor_));
+            render_.use_font_for(language());
+        }
+        if (down & (HidNpadButton_Up | HidNpadButton_StickLUp)) {
+            language_cursor_ = (language_cursor_ + count - 1) % count;
+            set_language(static_cast<Lang>(language_cursor_));
+            render_.use_font_for(language());
+        }
+        if (down & HidNpadButton_A) {
+            settings_.language = code_of(static_cast<Lang>(language_cursor_));
+            settings_.save(kSettingsFile);
+            language_pending_ = false;
+        }
+        return;
+    }
 
     if (down & HidNpadButton_Plus) {
         running_ = false;
@@ -366,16 +411,16 @@ void App::handle_input(uint64_t now_ms) {
                 const bt::TorrentStatus& t = torrents_[static_cast<size_t>(selection())];
                 if (t.state == bt::TorrentState::Paused) {
                     session_.resume(t.hash_hex);
-                    toast("Reprise");
+                    toast(tr(Str::ToastResumed));
                 } else {
                     session_.pause(t.hash_hex);
-                    toast("Mis en pause");
+                    toast(tr(Str::ToastPaused));
                 }
             }
             if ((down & HidNpadButton_ZR) && !torrents_.empty()) {
                 const bt::TorrentStatus& t = torrents_[static_cast<size_t>(selection())];
                 session_.remove(t.hash_hex, /*delete_files=*/false);
-                toast("Torrent retiré (fichiers conservés)");
+                toast(tr(Str::ToastRemovedKept));
             }
             // Relire 35 Go prend plus d'une heure. Quand elle ne sert à rien —
             // le cas courant — il faut pouvoir la couper sans tuer l'appli.
@@ -383,7 +428,7 @@ void App::handle_input(uint64_t now_ms) {
                 const bt::TorrentStatus& t = torrents_[static_cast<size_t>(selection())];
                 if (t.state == bt::TorrentState::Checking) {
                     session_.skip_check(t.hash_hex);
-                    toast("Vérification passée — le reste sera retéléchargé");
+                    toast(tr(Str::ToastCheckSkipped));
                 }
             }
             break;
@@ -391,7 +436,7 @@ void App::handle_input(uint64_t now_ms) {
         case Tab::Library:
             if (down & HidNpadButton_X) {
                 refresh_library();
-                toast("Bibliothèque relue");
+                toast(tr(Str::LibraryRescanned));
             }
             break;
 
@@ -400,7 +445,7 @@ void App::handle_input(uint64_t now_ms) {
                 if (phone_.step() == Phone::Step::Off || phone_.step() == Phone::Step::Failed) {
                     std::string err;
                     if (phone_.start(session_, &err)) {
-                        toast("Point d'accès levé — Internet coupé le temps de l'import");
+                        toast(tr(Str::PhoneOpened));
                     } else {
                         // Un échec ici ne se rejoue pas : personne ne va
                         // relancer un autre programme pour comprendre. La
@@ -419,7 +464,7 @@ void App::handle_input(uint64_t now_ms) {
                     }
                 } else {
                     phone_.stop();
-                    toast("Point d'accès refermé");
+                    toast(tr(Str::PhoneClosed));
                 }
             }
             if ((down & HidNpadButton_Y) && phone_.step() == Phone::Step::JoinWifi) {
@@ -430,19 +475,19 @@ void App::handle_input(uint64_t now_ms) {
         case Tab::Vpn:
             if (down & HidNpadButton_X) {
                 std::string number;
-                if (text_input("Numéro de compte Mullvad (16 chiffres)", "", number, 32)) {
+                if (text_input(tr(Str::VpnAccountPrompt), "", number, 32)) {
                     vpn_.set_account(number);
-                    toast("Compte enregistré");
+                    toast(tr(Str::VpnAccountSaved));
                 }
             }
             if (down & HidNpadButton_A) {
                 if (vpn_.busy()) {
-                    toast("Connexion déjà en cours");
+                    toast(tr(Str::VpnBusy));
                 } else if (vpn_.state() == vpn::State::Connected) {
                     vpn_.disconnect(session_);
-                    toast("VPN coupé — trafic en direct");
+                    toast(tr(Str::VpnCut));
                 } else if (!vpn_.has_account()) {
-                    toast("Renseigner le compte Mullvad (X)", true);
+                    toast(tr(Str::VpnNeedAccount), true);
                 } else {
                     vpn_.connect(session_);
                 }
@@ -452,7 +497,7 @@ void App::handle_input(uint64_t now_ms) {
                 // rafraîchissement des relais.
                 const std::vector<std::string> list = vpn_.countries();
                 if (list.empty()) {
-                    toast("Se connecter une fois pour obtenir la liste des pays");
+                    toast(tr(Str::VpnConnectForCountries));
                 } else {
                     const std::string current = vpn_.preferred_country();
                     size_t index = 0;
@@ -463,30 +508,47 @@ void App::handle_input(uint64_t now_ms) {
                         }
                     }
                     vpn_.set_preferred_country(list[index]);
-                    toast("Pays : " + list[index]);
+                    toast(trf(Str::VpnCountrySet, list[index].c_str()));
                 }
             }
             break;
 
         default: {
-            const int count = static_cast<int>(toggles().size());
+            // Ligne 0 : la langue. Les bascules suivent, décalées d'un cran.
+            const int count = static_cast<int>(toggles().size()) + 1;
             if (down & HidNpadButton_Down) settings_cursor_ = (settings_cursor_ + 1) % count;
             if (down & HidNpadButton_Up) {
                 settings_cursor_ = (settings_cursor_ + count - 1) % count;
             }
 
-            if (down & HidNpadButton_A) {
-                const Toggle& t = toggles()[static_cast<size_t>(settings_cursor_)];
+            if (settings_cursor_ == 0) {
+                // ←→ autant que A : sur une liste de sept valeurs, obliger à
+                // faire le tour complet pour revenir en arrière est une punition.
+                const int langs = static_cast<int>(Lang::kCount);
+                int step = 0;
+                if (down & (HidNpadButton_A | HidNpadButton_Right)) step = 1;
+                if (down & HidNpadButton_Left) step = langs - 1;
+                if (step != 0) {
+                    const Lang next = static_cast<Lang>((static_cast<int>(language()) + step) %
+                                                        langs);
+                    set_language(next);
+                    render_.use_font_for(next);
+                    settings_.language = code_of(next);
+                    apply_settings();
+                }
+            } else if (down & HidNpadButton_A) {
+                const Toggle& t = toggles()[static_cast<size_t>(settings_cursor_ - 1)];
                 bool& value = settings_.*(t.field);
                 value = !value;
                 apply_settings();
 
                 const bool checked = t.inverted ? !value : value;
-                toast(std::string(t.label) + (checked ? " : activé" : " : désactivé"));
+                toast(std::string(tr(t.label)) + " : " +
+                      tr(checked ? Str::SettingOn : Str::SettingOff));
             }
 
             if (down & HidNpadButton_Y) {
-                if (diag_running_) toast("Diagnostic déjà en cours");
+                if (diag_running_) toast(tr(Str::DiagBusy));
                 else run_selftest();
             }
             break;
@@ -507,8 +569,8 @@ void App::draw_topbar() {
     // Pastille d'état du VPN.
     const vpn::State vpn_state = vpn_.state();
     const bool up = vpn_state == vpn::State::Connected;
-    const std::string vpn_text = up ? "VPN Mullvad"
-                                    : (vpn_state == vpn::State::Working ? "VPN…" : "Sans VPN");
+    const std::string vpn_text = up ? tr(Str::VpnOn)
+                                    : (vpn_state == vpn::State::Working ? "VPN…" : tr(Str::VpnNone));
     const Color pill = up ? palette::kAccentDim
                           : (vpn_state == vpn::State::Working ? palette::kWarn : palette::kError);
     const int pill_w = render_.text_width(FontSize::Small, vpn_text) + 28;
@@ -570,8 +632,8 @@ void App::draw_empty(const std::string& title, const std::string& hint) {
 
 void App::draw_torrents() {
     if (torrents_.empty()) {
-        draw_empty("Aucun torrent",
-                   "X pour coller un lien  ·  ZL pour importer sdmc:/torfoil/magnets.txt");
+        draw_empty(tr(Str::NoTorrents),
+                   std::string(tr(Str::HowMagnet)) + "  ·  " + tr(Str::HowMagnetsFile));
         return;
     }
 
@@ -604,7 +666,7 @@ void App::draw_torrents() {
 
         char detail[256];
         std::snprintf(detail, sizeof(detail), "%s · %s · %s · ↓ %s",
-                      bt::state_label(t.state),
+                      tr(state_key(t.state)),
                       t.total_size ? util::human_size(t.total_size).c_str() : "taille inconnue",
                       peers, util::human_rate(t.rate_down).c_str());
         render_.text_clipped(FontSize::Small, detail, kMargin + 20, y + 46, text_w,
@@ -638,8 +700,8 @@ void App::draw_torrents() {
 
 void App::draw_library() {
     if (library_.empty()) {
-        draw_empty("Bibliothèque vide",
-                   "Les fichiers téléchargés apparaîtront ici — X pour relire");
+        draw_empty(tr(Str::LibraryEmpty),
+                   tr(Str::LibraryEmptyHintFiles));
         return;
     }
 
@@ -684,31 +746,57 @@ void App::draw_library() {
 // rejoindre le reseau, le second ouvre la page. Les afficher tous les deux en
 // meme temps serait plus court a coder et impossible a suivre - l'appareil
 // photo ne saurait pas lequel viser.
+// Sept lignes, chacune écrite dans sa propre langue. C'est la seule mise en
+// forme qui marche ici : on ne peut pas demander « quelle langue parlez-vous ? »
+// dans une langue que l'on ne parle pas, mais tout le monde reconnaît le nom de
+// la sienne.
+void App::draw_language_picker() {
+    const int cx = Renderer::kWidth / 2;
+
+    render_.text_centered(FontSize::Huge, "Torfoil", cx, kContentTop + 10, palette::kAccent);
+    render_.text_centered(FontSize::Title, tr(Str::LangPickTitle), cx, kContentTop + 70,
+                          palette::kText);
+
+    const int row_h = 52;
+    int y = kContentTop + 130;
+    for (int i = 0; i < static_cast<int>(Lang::kCount); ++i) {
+        const bool focused = i == language_cursor_;
+        const int w = 420;
+        render_.rounded_rect(cx - w / 2, y, w, row_h - 8, 10,
+                             focused ? palette::kSelected : palette::kSurface);
+        render_.text_centered(FontSize::Body, endonym(static_cast<Lang>(i)), cx, y + 8,
+                              focused ? palette::kText : palette::kTextDim);
+        y += row_h;
+    }
+
+    render_.text_centered(FontSize::Small, tr(Str::LangPickHint), cx, y + 16, palette::kTextDim);
+}
+
 void App::draw_phone() {
     const int cx = Renderer::kWidth / 2;
 
     if (phone_.step() == Phone::Step::Off) {
-        render_.text_centered(FontSize::Title, "Import depuis un téléphone", cx,
+        render_.text_centered(FontSize::Title, tr(Str::PhoneTitle), cx,
                               kContentTop + 60, palette::kText);
         render_.text_centered(FontSize::Body,
-                              "La console crée son propre réseau Wi-Fi et affiche un code QR.",
+                              tr(Str::PhoneIntro1),
                               cx, kContentTop + 120, palette::kTextDim);
         render_.text_centered(FontSize::Body,
-                              "Le téléphone le rejoint, ouvre une page, et y dépose ses liens.",
+                              tr(Str::PhoneIntro2),
                               cx, kContentTop + 154, palette::kTextDim);
         render_.text_centered(FontSize::Body,
-                              "Pendant ce temps la console n'a plus Internet : les",
+                              tr(Str::PhoneWarn1),
                               cx, kContentTop + 210, palette::kWarn);
         render_.text_centered(FontSize::Body,
-                              "téléchargements reprennent dès que le point d'accès est refermé.",
+                              tr(Str::PhoneWarn2),
                               cx, kContentTop + 244, palette::kWarn);
-        render_.text_centered(FontSize::Body, "A pour ouvrir", cx, kContentTop + 300,
+        render_.text_centered(FontSize::Body, tr(Str::PhoneOpenHint), cx, kContentTop + 300,
                               palette::kAccent);
         return;
     }
 
     if (phone_.step() == Phone::Step::Failed) {
-        render_.text_centered(FontSize::Title, "Le point d'accès n'a pas démarré", cx,
+        render_.text_centered(FontSize::Title, tr(Str::PhoneFailed), cx,
                               kContentTop + 100, palette::kError);
         render_.text_clipped(FontSize::Body, phone_.error(), kMargin, kContentTop + 160,
                              Renderer::kWidth - 2 * kMargin, palette::kTextDim);
@@ -717,12 +805,12 @@ void App::draw_phone() {
 
     const bool joining = phone_.step() == Phone::Step::JoinWifi;
     render_.text_centered(FontSize::Title,
-                          joining ? "1. Rejoindre le réseau de la console"
-                                  : "2. Ouvrir la page",
+                          joining ? tr(Str::PhoneStep1)
+                                  : tr(Str::PhoneStep2),
                           cx, kContentTop + 20, palette::kText);
     render_.text_centered(FontSize::Small,
-                          joining ? "Visez ce code avec l'appareil photo du téléphone"
-                                  : "Visez ce code : la page s'ouvre dans le navigateur",
+                          joining ? tr(Str::PhoneAim1)
+                                  : tr(Str::PhoneAim2),
                           cx, kContentTop + 62, palette::kTextDim);
 
     // La zone de silence autour du motif est comprise dans le tracé : sans
@@ -747,13 +835,13 @@ void App::draw_phone() {
             render_.text_centered(FontSize::Body, "Mot de passe : " + phone_.ap().passphrase(), cx,
                                   ty + 30, palette::kText);
             render_.text_centered(FontSize::Small,
-                                  "Une fois le téléphone connecté, appuyez sur Y", cx, ty + 64,
+                                  tr(Str::PhoneThenY), cx, ty + 64,
                                   palette::kAccent);
         } else {
             render_.text_centered(FontSize::Body, phone_.url(), cx, ty, palette::kText);
             const uint32_t got = phone_.imported();
             render_.text_centered(FontSize::Small,
-                                  got == 0 ? "En attente d'un envoi"
+                                  got == 0 ? tr(Str::PhoneWaiting)
                                            : std::to_string(got) + " torrent(s) reçu(s)",
                                   cx, ty + 32, got == 0 ? palette::kTextDim : palette::kSuccess);
         }
@@ -764,7 +852,7 @@ void App::draw_vpn() {
     const int x = kMargin;
     int y = kContentTop + 24;
 
-    render_.text(FontSize::Title, "Mullvad", x, y, palette::kText);
+    render_.text(FontSize::Title, tr(Str::VpnStatus), x, y, palette::kText);
     y += 50;
 
     const vpn::State state = vpn_.state();
@@ -787,7 +875,7 @@ void App::draw_vpn() {
             break;
     }
 
-    render_.text(FontSize::Body, "Statut", x, y, palette::kTextDim);
+    render_.text(FontSize::Body, tr(Str::VpnStatus), x, y, palette::kTextDim);
     render_.text(FontSize::Body, label, x + 260, y, color);
     y += 38;
 
@@ -805,21 +893,20 @@ void App::draw_vpn() {
         y += 38;
     };
 
-    row("Compte", vpn_.account_masked());
+    row(tr(Str::VpnAccount), vpn_.account_masked());
     const std::string country = vpn_.preferred_country();
     row("Pays", country.empty() ? "automatique" : country);
 
     if (state == vpn::State::Connected) {
-        row("Relais", vpn_.relay_label());
-        row("Tunnel", "↑ " + util::human_size(vpn_.bytes_sent()) + "   ↓ " +
+        row(tr(Str::VpnRelay), vpn_.relay_label());
+        row(tr(Str::VpnTunnel), "↑ " + util::human_size(vpn_.bytes_sent()) + "   ↓ " +
                           util::human_size(vpn_.bytes_received()));
     }
 
     y += 20;
     render_.text_clipped(
         FontSize::Small,
-        "Le moteur BitTorrent ne peut pas ouvrir de socket lui-même : il en demande au "
-        "transport actif. Tunnel absent = aucune connexion possible.",
+        std::string(tr(Str::VpnNoteLine1)) + " " + tr(Str::VpnNoteLine2),
         x, y, Renderer::kWidth - 2 * kMargin, palette::kTextDim);
 }
 
@@ -837,7 +924,7 @@ void App::draw_settings() {
 
     // ---- colonne de gauche : confidentialité ----
     int y = kContentTop + 12;
-    render_.section_header("CONFIDENTIALITÉ", left, y, palette::kAccent);
+    render_.section_header(tr(Str::SecPrivacy), left, y, palette::kAccent);
     y += 34;
 
     // Chaque bascule annonce son coût. Une option de sécurité qui ne dit pas ce
@@ -848,21 +935,37 @@ void App::draw_settings() {
     constexpr int switch_w = 54;
     constexpr int switch_h = 28;
 
+    // La langue en premier : c'est le réglage qu'on vient chercher quand on ne
+    // comprend pas le reste de l'écran.
+    {
+        const bool focused = settings_cursor_ == 0;
+        render_.rounded_rect(left, y, left_w, row_h - 8, 10,
+                             focused ? palette::kSelected : palette::kSurface);
+        render_.text(FontSize::Body, tr(Str::FieldLanguage), left + 18, y + 6, palette::kText);
+        render_.text(FontSize::Small, tr(Str::HintChangeValue), left + 18, y + 32,
+                     palette::kTextDim);
+        const std::string value = endonym(language());
+        render_.text(FontSize::Body, value,
+                     left + left_w - 18 - render_.text_width(FontSize::Body, value), y + 16,
+                     focused ? palette::kAccent : palette::kText);
+        y += row_h;
+    }
+
     for (size_t i = 0; i < list.size(); ++i) {
         const Toggle& t = list[i];
         const bool raw = settings_.*(t.field);
         const bool checked = t.inverted ? !raw : raw;
-        const bool focused = static_cast<int>(i) == settings_cursor_;
+        const bool focused = static_cast<int>(i) + 1 == settings_cursor_;
 
         // Seul le fond change avec le focus : rien ne bouge, donc l'écran n'a
         // pas à être relu après chaque appui.
         render_.rounded_rect(left, y, left_w, row_h - 8, 10,
                              focused ? palette::kSelected : palette::kSurface);
 
-        render_.text_clipped(FontSize::Body, t.label, left + 18, y + 6,
+        render_.text_clipped(FontSize::Body, tr(t.label), left + 18, y + 6,
                              left_w - 36 - switch_w - 18,
                              checked ? palette::kText : palette::kTextDim);
-        render_.text_clipped(FontSize::Small, t.effect, left + 18, y + 32,
+        render_.text_clipped(FontSize::Small, tr(t.effect), left + 18, y + 32,
                              left_w - 36 - switch_w - 18, palette::kTextDim);
         render_.toggle_switch(left + left_w - 18 - switch_w, y + 14, switch_w, switch_h, checked,
                               focused);
@@ -871,7 +974,7 @@ void App::draw_settings() {
 
     // ---- colonne de droite : état, puis auto-diagnostic ----
     int ry = kContentTop + 12;
-    render_.section_header("ÉTAT", right, ry, palette::kTextDim);
+    render_.section_header(tr(Str::SecStatus), right, ry, palette::kTextDim);
     ry += 34;
 
     auto info = [&](const std::string& key, const std::string& value) {
@@ -880,12 +983,12 @@ void App::draw_settings() {
                              palette::kText);
         ry += 28;
     };
-    info("Transport", session_.transport_name());
-    info("Torrents actifs", std::to_string(torrents_.size()));
+    info(tr(Str::FieldTransport), session_.transport_name());
+    info(tr(Str::FieldActiveTorrents), std::to_string(torrents_.size()));
     info("Point d\'accès", phone_.step() == Phone::Step::Off ? "fermé" : phone_.ap().ssid());
 
     ry += 20;
-    render_.section_header("AUTO-DIAGNOSTIC", right, ry, palette::kAccent);
+    render_.section_header(tr(Str::SecSelfTest), right, ry, palette::kAccent);
     render_.key_badge(FontSize::Small, "Y", right + right_w - 34, ry, palette::kAccent);
     ry += 36;
 
@@ -895,12 +998,11 @@ void App::draw_settings() {
     }
 
     if (diag_report_.checks.empty()) {
-        render_.text_clipped(FontSize::Small, "Éprouve la carte au-delà de 4 Go et la", right, ry,
-                             right_w, palette::kTextDim);
-        render_.text_clipped(FontSize::Small, "sortie réelle du trafic. Rien n\'est", right,
-                             ry + 24, right_w, palette::kTextDim);
-        render_.text_clipped(FontSize::Small, "conservé.", right, ry + 48, right_w,
-                             palette::kTextDim);
+        int hy = ry;
+        for (Str hint : {Str::SelfTestHint1, Str::SelfTestHint2, Str::SelfTestHint3}) {
+            render_.text_clipped(FontSize::Small, tr(hint), right, hy, right_w, palette::kTextDim);
+            hy += 24;
+        }
         return;
     }
 
@@ -912,7 +1014,8 @@ void App::draw_settings() {
         // Une épreuve non exécutée n'est pas un échec : la confondre enverrait
         // chercher un bug là où il n'y en a pas.
         const Color color = !c.ran ? palette::kWarn : (c.ok ? palette::kSuccess : palette::kError);
-        const std::string tag = !c.ran ? "IGNORÉ" : (c.ok ? "OK" : "ÉCHEC");
+        const std::string tag =
+            tr(!c.ran ? Str::CheckSkipped : (c.ok ? Str::CheckOk : Str::CheckFailed));
 
         const int tag_w = render_.text_width(FontSize::Small, tag) + 16;
         render_.rounded_rect(right, ry - 2, tag_w, 24, 6, palette::kSurfaceAlt);
@@ -963,25 +1066,33 @@ void App::draw(uint64_t now_ms) {
     render_.begin_frame();
     render_.fill(palette::kBackground);
 
+    // Le sélecteur de langue occupe l'écran seul. Laisser la barre du haut et
+    // les onglets derrière lui donnerait à croire qu'on peut aller ailleurs.
+    if (language_pending_) {
+        draw_language_picker();
+        render_.end_frame();
+        return;
+    }
+
     draw_topbar();
     draw_tabs();
 
     switch (tab_) {
         case Tab::Torrents:
             draw_torrents();
-            draw_hints({{"X", "Coller un magnet"},
-                        {"ZL", "Importer magnets.txt"},
-                        {"Y", "Pause / Reprise"},
-                        {"B", "Passer la vérification"},
-                        {"ZR", "Retirer"},
-                        {"L/R", "Onglet"},
-                        {"+", "Quitter"}});
+            draw_hints({{"X", tr(Str::HintPasteMagnet)},
+                        {"ZL", tr(Str::HintMagnetsFile)},
+                        {"Y", tr(Str::HintPause)},
+                        {"B", tr(Str::HintSkipCheck)},
+                        {"ZR", tr(Str::HintRemove)},
+                        {"L/R", tr(Str::HintTab)},
+                        {"+", tr(Str::HintQuit)}});
             break;
         case Tab::Library:
             draw_library();
-            draw_hints({{"X", "Relire"},
-                        {"L/R", "Onglet"},
-                        {"+", "Quitter"}});
+            draw_hints({{"X", tr(Str::HintRescan)},
+                        {"L/R", tr(Str::HintTab)},
+                        {"+", tr(Str::HintQuit)}});
             break;
         case Tab::Phone:
             draw_phone();
@@ -989,25 +1100,25 @@ void App::draw(uint64_t now_ms) {
                                       phone_.step() == Phone::Step::Failed
                                   ? "Ouvrir"
                                   : "Fermer"},
-                        {"Y", "Téléphone connecté"},
-                        {"L/R", "Onglet"},
-                        {"+", "Quitter"}});
+                        {"Y", tr(Str::HintPhoneJoined)},
+                        {"L/R", tr(Str::HintTab)},
+                        {"+", tr(Str::HintQuit)}});
             break;
         case Tab::Vpn:
             draw_vpn();
-            draw_hints({{"A", "Connecter / Couper"},
-                        {"X", "Compte Mullvad"},
-                        {"Y", "Pays"},
-                        {"L/R", "Onglet"},
-                        {"+", "Quitter"}});
+            draw_hints({{"A", tr(Str::HintConnect)},
+                        {"X", tr(Str::HintAccount)},
+                        {"Y", tr(Str::HintCountry)},
+                        {"L/R", tr(Str::HintTab)},
+                        {"+", tr(Str::HintQuit)}});
             break;
         default:
             draw_settings();
-            draw_hints({{"A", "Cocher"},
-                        {"↑↓", "Choisir"},
-                        {"Y", "Auto-diagnostic"},
-                        {"L/R", "Onglet"},
-                        {"+", "Quitter"}});
+            draw_hints({{"A", tr(Str::HintToggle)},
+                        {"↑↓", tr(Str::HintChoose)},
+                        {"Y", tr(Str::HintSelfTest)},
+                        {"L/R", tr(Str::HintTab)},
+                        {"+", tr(Str::HintQuit)}});
             break;
     }
 

@@ -17,6 +17,7 @@
 #include "bt/metainfo.hpp"
 #include "bt/piece_picker.hpp"
 #include "net/http_parse.hpp"
+#include "ui/lang.hpp"
 #include "net/http_server.hpp"
 #include "bt/storage.hpp"
 #include <sys/resource.h>
@@ -319,6 +320,101 @@ void test_http_parse() {
 // justement celles dont l'absence casse quelque chose.
 // ---------------------------------------------------------------------------
 
+
+// Extrait les marqueurs de format d'une chaîne, « %% » exclu.
+std::vector<std::string> format_specifiers(const std::string& text) {
+    std::vector<std::string> out;
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (text[i] != '%') continue;
+        if (i + 1 < text.size() && text[i + 1] == '%') {
+            ++i;  // littéral, pas un argument
+            continue;
+        }
+        size_t end = i + 1;
+        while (end < text.size() && std::strchr("diouxXeEfgGcspn", text[end]) == nullptr) ++end;
+        if (end < text.size()) {
+            out.push_back(text.substr(i, end - i + 1));
+            i = end;
+        }
+    }
+    return out;
+}
+
+void test_translations() {
+    section("traductions");
+
+    const int langs = static_cast<int>(ui::Lang::kCount);
+    const int keys = static_cast<int>(ui::Str::kCount);
+    check(langs == 7, "sept langues");
+    check(keys > 150, std::to_string(keys) + " textes par langue");
+
+    // 1) Aucune case vide. Une traduction oubliée ne se voit pas à la
+    // compilation si quelqu'un met "" pour aller vite ; elle se voit à
+    // l'écran, sous la forme d'un libellé absent.
+    int empty = 0;
+    for (int l = 0; l < langs; ++l) {
+        ui::set_language(static_cast<ui::Lang>(l));
+        for (int k = 0; k < keys; ++k) {
+            const char* text = ui::tr(static_cast<ui::Str>(k));
+            if (text == nullptr || text[0] == '\0') ++empty;
+        }
+    }
+    check(empty == 0, "aucune traduction vide (" + std::to_string(langs * keys) + " vérifiées)");
+
+    // 2) Les marqueurs de format identiques d'une langue à l'autre. C'est LA
+    // faute qui ne pardonne pas : trf() passe les mêmes arguments quelle que
+    // soit la langue, donc un « %s » devenu « %d » dans une seule colonne lit
+    // un pointeur comme un entier — au mieux un affichage absurde, au pire un
+    // plantage, et seulement chez les utilisateurs de cette langue-là.
+    int mismatches = 0;
+    std::string first_bad;
+    for (int k = 0; k < keys; ++k) {
+        ui::set_language(ui::Lang::De);
+        const std::vector<std::string> reference =
+            format_specifiers(ui::tr(static_cast<ui::Str>(k)));
+
+        for (int l = 1; l < langs; ++l) {
+            ui::set_language(static_cast<ui::Lang>(l));
+            const std::string text = ui::tr(static_cast<ui::Str>(k));
+            if (format_specifiers(text) == reference) continue;
+            ++mismatches;
+            if (first_bad.empty()) first_bad = "clé " + std::to_string(k) + " : « " + text + " »";
+        }
+    }
+    check(mismatches == 0,
+          mismatches == 0 ? "marqueurs de format cohérents entre les sept langues"
+                          : "marqueurs incohérents — " + first_bad);
+
+    // 3) Les codes persistés dans settings.cfg font l'aller-retour.
+    bool codes_ok = true;
+    for (int l = 0; l < langs; ++l) {
+        const ui::Lang lang = static_cast<ui::Lang>(l);
+        ui::Lang back = ui::Lang::En;
+        if (!ui::lang_from_code(ui::code_of(lang), back) || back != lang) codes_ok = false;
+        if (ui::endonym(lang)[0] == '\0') codes_ok = false;
+    }
+    check(codes_ok, "codes de langue et noms natifs cohérents");
+
+    ui::Lang unknown = ui::Lang::En;
+    check(!ui::lang_from_code("kl", unknown), "code inconnu refusé");
+
+    // 4) Les langues disent vraiment des choses différentes : une table remplie
+    // par copier-coller passerait les trois épreuves précédentes sans broncher.
+    ui::set_language(ui::Lang::Fr);
+    const std::string fr = ui::tr(ui::Str::TabSettings);
+    ui::set_language(ui::Lang::Ja);
+    const std::string ja = ui::tr(ui::Str::TabSettings);
+    ui::set_language(ui::Lang::Ru);
+    const std::string ru = ui::tr(ui::Str::TabSettings);
+    check(fr != ja && ja != ru && fr != ru, "les colonnes portent des textes distincts");
+
+    // 5) trf() substitue réellement, dans la langue active.
+    ui::set_language(ui::Lang::Es);
+    check(ui::trf(ui::Str::ToastTorrentsAdded, 4) == "4 torrents añadidos",
+          "trf remplit le marqueur dans la langue active");
+
+    ui::set_language(ui::Lang::En);
+}
 
 void test_bitfield() {
     section("bitfield");
@@ -1016,6 +1112,7 @@ int main() {
     test_magnet();
     test_qr();
     test_http_parse();
+    test_translations();
     test_bitfield();
     test_picker();
     test_blake2s();

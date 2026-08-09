@@ -8,9 +8,20 @@
 #include <string>
 #include <vector>
 
+#include "ui/lang.hpp"
+
 namespace ui {
 
 struct Settings {
+    // « auto » suit la langue de la console, tout autre code la fige. Stocké en
+    // texte plutôt qu'en indice : un fichier de réglages doit rester lisible et
+    // réparable à la main, et un numéro d'énumération ne survivrait pas à
+    // l'ajout d'une langue au milieu de la liste.
+    std::string language = "auto";
+
+    // Langue réellement à appliquer, « auto » résolu.
+    Lang effective_language() const;
+
     // Aucune connexion si le tunnel n'est pas debout. C'est le killswitch rendu
     // obligatoire : sans lui, couper le VPN laisse le trafic repartir en clair.
     bool require_vpn = false;
@@ -24,11 +35,11 @@ struct Settings {
     bool enable_dht = true;
 
     // PEX échange des carnets d'adresses avec les pairs : très efficace, mais
-    // fait savoir à chacun d'eux ce qu'on connaît du essaim.
+    // fait savoir à chacun d'eux ce que l'on connaît de l'essaim.
     bool enable_pex = true;
 
-    // Ne rien partager. Réduit la visibilité, au prix de se faire étrangler plus
-    // souvent — les pairs favorisent ceux qui rendent la pareille.
+    // Ne rien partager. Réduit la visibilité, au prix d'être servi plus
+    // rarement — les pairs favorisent ceux qui rendent la pareille.
     bool no_upload = false;
 
     bool load(const std::string& path);
@@ -36,12 +47,13 @@ struct Settings {
 };
 
 // Description d'une case pour l'affichage : libellé, explication, et accès à la
-// valeur.
+// valeur. Les textes sont des clés, pas des chaînes : changer de langue ne doit
+// pas demander de reconstruire cette liste.
 struct Toggle {
-    const char* label;
-    const char* effect;   // ce que ça change, en une ligne
+    Str label;
+    Str effect;  // ce que l'option coûte, en une ligne
     bool Settings::*field;
-    bool inverted;        // vrai si cocher signifie « désactiver »
+    bool inverted;  // vrai si cocher signifie « désactiver »
 };
 
 const std::vector<Toggle>& toggles();

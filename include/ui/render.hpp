@@ -12,6 +12,7 @@
 #include <string>
 #include <unordered_map>
 
+#include "ui/lang.hpp"
 #include "util/qr.hpp"
 
 namespace ui {
@@ -62,6 +63,14 @@ public:
 
     void progress_bar(int x, int y, int w, int h, float ratio, const Color& fill_color);
 
+    // Recharge les polices pour la langue donnée. La police « Standard » de la
+    // console couvre le japonais, le cyrillique et le latin — son nom complet
+    // est « Japan, US and Europe » — mais pas les sinogrammes simplifiés, qui
+    // ont leur propre police. Sans cet appel, une interface en chinois s'affiche
+    // en carrés vides, ce qui ressemble à une traduction manquante alors que le
+    // texte est là.
+    bool use_font_for(Lang lang, std::string* err = nullptr);
+
     // Interrupteur à glissière. Remplace le « [x] » d'origine : la position du
     // curseur se lit d'un coup d'œil à travers la pièce, là où une croix entre
     // crochets demande de la lire.
@@ -104,6 +113,7 @@ private:
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr;
     TTF_Font* fonts_[4] = {nullptr, nullptr, nullptr, nullptr};
+    int font_type_ = -1;  // PlSharedFontType chargé, -1 si aucun
 
     // Le rendu de texte par TTF est coûteux : une texture par (taille, texte,
     // couleur) est conservée d'une image à l'autre.

@@ -46,6 +46,10 @@ private:
     void draw_torrents();
     void draw_library();
     void draw_phone();
+    // Écran de premier lancement : la seule chose affichée tant que la langue
+    // n'a pas été choisie.
+    void draw_language_picker();
+    bool language_pending() const { return language_pending_; }
     void draw_vpn();
     void draw_settings();
     void run_selftest();
@@ -83,6 +87,13 @@ private:
 
     Settings settings_;
     int settings_cursor_ = 0;
+
+    // Vrai tant que settings.cfg ne portait aucune langue, c'est-à-dire au tout
+    // premier lancement. On demande alors, plutôt que de deviner : suivre la
+    // console est un bon défaut, mais une console prêtée ou revendue n'est pas
+    // réglée dans la langue de celui qui la tient.
+    bool language_pending_ = false;
+    int language_cursor_ = 0;
 
     std::thread diag_thread_;
     std::atomic<bool> diag_running_{false};

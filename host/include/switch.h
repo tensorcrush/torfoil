@@ -117,7 +117,10 @@ Result swkbdShow(SwkbdConfig* kbd, char* out, size_t out_size);
 
 // --- police système ---
 typedef enum { PlServiceType_User = 0 } PlServiceType;
-typedef enum { PlSharedFontType_Standard = 0 } PlSharedFontType;
+typedef enum {
+    PlSharedFontType_Standard = 0,
+    PlSharedFontType_ChineseSimplified = 1,
+} PlSharedFontType;
 
 typedef struct {
     void* address;

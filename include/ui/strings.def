@@ -1,0 +1,1017 @@
+// Table des textes de l'interface — source unique.
+//
+// Chaque ligne porte une clé et ses sept traductions, dans l'ordre
+// de · en · es · fr · ja · ru · zh. Ce fichier est inclus deux fois : une fois
+// pour engendrer l'énumération des clés (ui/lang.hpp), une fois pour engendrer
+// la table (source/ui/lang.cpp).
+//
+// L'intérêt de tout garder sur une ligne n'est pas la concision : c'est qu'une
+// traduction oubliée ne compile pas, et qu'on relit les sept versions d'une
+// phrase côte à côte au lieu de sauter entre sept fichiers. Ajouter une langue
+// se fait en ajoutant une colonne, et le compilateur signale alors chaque ligne
+// restée en arrière.
+//
+// Les marqueurs de format (%s, %u, %d) doivent être identiques et dans le même
+// ordre dans les sept colonnes.
+
+// ---------------------------------------------------------------------------
+// Onglets
+// ---------------------------------------------------------------------------
+X(TabTorrents,
+  "Torrents", "Torrents", "Torrents", "Torrents", "トレント", "Торренты", "种子")
+X(TabLibrary,
+  "Bibliothek", "Library", "Biblioteca", "Bibliothèque", "ライブラリ", "Библиотека", "库")
+X(TabRemote,
+  "Fernzugriff", "Remote", "Remoto", "À distance", "リモート", "Удалённо", "远程")
+X(TabVpn, "VPN", "VPN", "VPN", "VPN", "VPN", "VPN", "VPN")
+X(TabSettings,
+  "Einstellungen", "Settings", "Ajustes", "Réglages", "設定", "Настройки", "设置")
+
+// ---------------------------------------------------------------------------
+// Barre supérieure
+// ---------------------------------------------------------------------------
+X(VpnOn,
+  "VPN Mullvad", "Mullvad VPN", "VPN Mullvad", "VPN Mullvad", "Mullvad VPN",
+  "Mullvad VPN", "Mullvad VPN")
+X(VpnWorking,
+  "VPN …", "VPN…", "VPN…", "VPN…", "VPN…", "VPN…", "VPN…")
+X(VpnNone,
+  "Ohne VPN", "No VPN", "Sin VPN", "Sans VPN", "VPN なし", "Без VPN", "无 VPN")
+X(FreeSpace,
+  "%s frei", "%s free", "%s libres", "%s libres", "空き %s", "%s свободно", "剩余 %s")
+
+// ---------------------------------------------------------------------------
+// États d'un torrent
+// ---------------------------------------------------------------------------
+X(StateMetadata,
+  "Metadaten", "Metadata", "Metadatos", "Métadonnées", "メタデータ", "Метаданные", "元数据")
+X(StateChecking,
+  "Prüfung", "Checking", "Verificando", "Vérification", "確認中", "Проверка", "校验中")
+X(StateDownloading,
+  "Download", "Downloading", "Descargando", "Téléchargement", "ダウンロード中",
+  "Загрузка", "下载中")
+X(StateSeeding,
+  "Verteilen", "Seeding", "Compartiendo", "Partage", "シード中", "Раздача", "做种中")
+X(StatePaused,
+  "Pausiert", "Paused", "En pausa", "En pause", "一時停止", "Пауза", "已暂停")
+X(StateCompleted,
+  "Fertig", "Completed", "Completado", "Terminé", "完了", "Завершено", "已完成")
+X(StateFailed,
+  "Fehler", "Failed", "Error", "Échec", "エラー", "Ошибка", "失败")
+
+// ---------------------------------------------------------------------------
+// Onglet Torrents
+// ---------------------------------------------------------------------------
+X(NoTorrents,
+  "Keine Torrents", "No torrents", "Ningún torrent", "Aucun torrent", "トレントなし",
+  "Нет торрентов", "没有种子")
+X(HowRemote,
+  "Fernzugriff — QR-Code scannen, fertig",
+  "Remote tab — scan the QR code, that's it",
+  "Pestaña Remoto: escanea el código QR y listo",
+  "Onglet À distance — scannez le QR code, c'est tout",
+  "リモートタブ — QR コードを読み取るだけ",
+  "Вкладка «Удалённо» — отсканируйте QR-код, и всё",
+  "远程标签页 — 扫描二维码即可")
+X(HowBrowse,
+  "A — .torrent von der Karte öffnen",
+  "A — open a .torrent from the card",
+  "A: abrir un .torrent de la tarjeta",
+  "A — ouvrir un .torrent depuis la carte",
+  "A — SD カードの .torrent を開く",
+  "A — открыть .torrent с карты",
+  "A — 从存储卡打开 .torrent")
+X(HowMagnet,
+  "X — Magnet-Link eintippen",
+  "X — type a magnet link",
+  "X: escribir un enlace magnet",
+  "X — saisir un lien magnet",
+  "X — マグネットリンクを入力",
+  "X — ввести magnet-ссылку",
+  "X — 输入磁力链接")
+X(HowMagnetsFile,
+  "ZL — sdmc:/torfoil/magnets.txt einlesen",
+  "ZL — import sdmc:/torfoil/magnets.txt",
+  "ZL: importar sdmc:/torfoil/magnets.txt",
+  "ZL — importer sdmc:/torfoil/magnets.txt",
+  "ZL — sdmc:/torfoil/magnets.txt を読み込む",
+  "ZL — импорт sdmc:/torfoil/magnets.txt",
+  "ZL — 导入 sdmc:/torfoil/magnets.txt")
+X(HowWatchFolder,
+  "Eine .torrent-Datei in sdmc:/torfoil/watch wird von selbst übernommen.",
+  "A .torrent dropped into sdmc:/torfoil/watch is picked up on its own.",
+  "Un .torrent dejado en sdmc:/torfoil/watch se añade solo.",
+  "Un .torrent déposé dans sdmc:/torfoil/watch est ajouté tout seul.",
+  "sdmc:/torfoil/watch に置いた .torrent は自動で追加されます。",
+  "Файл .torrent в папке sdmc:/torfoil/watch добавляется сам.",
+  "放入 sdmc:/torfoil/watch 的 .torrent 会自动添加。")
+X(PeersPlain,
+  "%u Peers", "%u peers", "%u pares", "%u pairs", "%u ピア", "%u пиров", "%u 个节点")
+X(PeersBlocked,
+  "%u Peers (%u blockieren)", "%u peers (%u blocking)", "%u pares (%u bloquean)",
+  "%u pairs (%u bloquent)", "%u ピア（%u が拒否）", "%u пиров (%u блокируют)",
+  "%u 个节点（%u 个拒绝）")
+X(SizeUnknown,
+  "Größe unbekannt", "size unknown", "tamaño desconocido", "taille inconnue",
+  "サイズ不明", "размер неизвестен", "大小未知")
+
+// ---------------------------------------------------------------------------
+// Onglet Bibliothèque
+// ---------------------------------------------------------------------------
+X(LibraryEmpty,
+  "Bibliothek leer", "Library empty", "Biblioteca vacía", "Bibliothèque vide",
+  "ライブラリは空です", "Библиотека пуста", "库为空")
+X(LibraryEmptyHint,
+  "Geladene .nsp / .xci erscheinen hier — X zum Neulesen",
+  "Downloaded .nsp / .xci show up here — X to rescan",
+  "Los .nsp / .xci descargados aparecen aquí. X para releer",
+  "Les .nsp / .xci téléchargés apparaissent ici — X pour relire",
+  "ダウンロードした .nsp / .xci がここに出ます — X で再読み込み",
+  "Загруженные .nsp / .xci появятся здесь — X для пересканирования",
+  "下载的 .nsp / .xci 会出现在这里 — X 重新扫描")
+X(NotInstallable,
+  "nicht installierbar", "not installable", "no instalable", "non installable",
+  "インストール不可", "нельзя установить", "无法安装")
+X(InProgressPct,
+  "läuft — %d %%", "in progress — %d%%", "en curso: %d %%", "en cours — %d %%",
+  "進行中 — %d%%", "идёт — %d %%", "进行中 — %d%%")
+X(CompressedFirst,
+  "komprimiert — zuerst entpacken", "compressed — decompress first",
+  "comprimido: descomprime primero", "compressé — décompressez-le d'abord",
+  "圧縮済み — 先に展開してください", "сжат — сначала распакуйте", "已压缩 — 请先解压")
+X(HeaderUnreadable,
+  "Kopfdaten unlesbar — Download unvollständig?",
+  "header unreadable — download incomplete?",
+  "cabecera ilegible: ¿descarga incompleta?",
+  "en-tête illisible — téléchargement incomplet ?",
+  "ヘッダーが読めません — ダウンロード未完了？",
+  "заголовок нечитаем — загрузка не завершена?",
+  "文件头无法读取 — 下载未完成？")
+X(NothingToVerify,
+  "Komprimiert: vor dem Entpacken gibt es nichts zu prüfen",
+  "Compressed: nothing to verify before decompressing",
+  "Comprimido: nada que verificar antes de descomprimir",
+  "Format compressé : rien à vérifier avant décompression",
+  "圧縮形式：展開前に確認できるものはありません",
+  "Сжатый формат: до распаковки проверять нечего",
+  "压缩格式：解压前无内容可校验")
+X(LibraryRescanned,
+  "Bibliothek neu gelesen", "Library rescanned", "Biblioteca releída",
+  "Bibliothèque relue", "ライブラリを再読み込みしました", "Библиотека пересканирована",
+  "已重新扫描库")
+X(NotInstallableFile,
+  "Diese Datei ist nicht installierbar", "This file is not installable",
+  "Este archivo no se puede instalar", "Ce fichier n'est pas installable",
+  "このファイルはインストールできません", "Этот файл нельзя установить", "此文件无法安装")
+
+// ---------------------------------------------------------------------------
+// Onglet À distance
+// ---------------------------------------------------------------------------
+X(RemoteDisabled,
+  "Fernzugriff ausgeschaltet", "Remote access is off", "Acceso remoto desactivado",
+  "Accès à distance désactivé", "リモートアクセスは無効です", "Удалённый доступ выключен",
+  "远程访问已关闭")
+X(RemoteDisabledHint,
+  "A zum Einschalten — es öffnet eine Webseite im lokalen Netz",
+  "A to turn it on — it opens a web page on your local network",
+  "A para activarlo: abre una página web en la red local",
+  "A pour l'activer — une page web s'ouvre sur le réseau local",
+  "A で有効化 — ローカルネットワーク上にページを公開します",
+  "A — включить: откроется веб-страница в локальной сети",
+  "按 A 开启 — 将在局域网上提供一个网页")
+X(RemoteUnavailable,
+  "Server nicht verfügbar", "Server unavailable", "Servidor no disponible",
+  "Serveur indisponible", "サーバーを起動できません", "Сервер недоступен", "服务器不可用")
+X(RemoteCheckWifi,
+  "WLAN der Konsole prüfen, dann Y für einen neuen Versuch",
+  "Check the console Wi-Fi, then press Y to try again",
+  "Comprueba el Wi-Fi de la consola y pulsa Y para reintentar",
+  "Vérifiez le Wi-Fi de la console, puis Y pour réessayer",
+  "本体の Wi-Fi を確認し、Y で再試行",
+  "Проверьте Wi-Fi консоли, затем Y для повтора",
+  "请检查主机的 Wi-Fi，然后按 Y 重试")
+X(RemoteRetrySuffix,
+  "  —  Y für einen neuen Versuch", "  —  Y to try again", "  —  Y para reintentar",
+  "  —  Y pour réessayer", "  —  Y で再試行", "  —  Y для повтора", "  —  按 Y 重试")
+X(RemoteScanTitle,
+  "Diesen Code mit dem Telefon scannen", "Scan this code with your phone",
+  "Escanea este código con el teléfono", "Scannez ce code avec votre téléphone",
+  "スマートフォンでこのコードを読み取る", "Отсканируйте код телефоном", "用手机扫描此二维码")
+X(RemoteScanLine1,
+  "Die Kamera genügt: eine Meldung bietet an,",
+  "The camera is enough: a notification offers",
+  "Basta la cámara: aparece un aviso para",
+  "L'appareil photo suffit : une notification propose",
+  "カメラを向けるだけ。通知からページを",
+  "Достаточно камеры: появится уведомление",
+  "只需打开相机：会弹出通知")
+X(RemoteScanLine2,
+  "die Seite zu öffnen. Nichts zu installieren, kein Konto.",
+  "to open the page. Nothing to install, no account.",
+  "abrir la página. Nada que instalar, sin cuenta.",
+  "d'ouvrir la page. Rien à installer, aucun compte.",
+  "開けます。インストールもアカウントも不要です。",
+  "с предложением открыть страницу. Ничего ставить не нужно.",
+  "提示打开页面。无需安装，无需账号。")
+X(RemoteTypeAddress,
+  "Oder diese Adresse im Browser eingeben", "Or type this address in a browser",
+  "O escribe esta dirección en un navegador", "Ou tapez cette adresse dans un navigateur",
+  "またはブラウザーにこのアドレスを入力", "Или введите этот адрес в браузере",
+  "或在浏览器中输入此地址")
+X(RemoteReceived,
+  "Empfangene Torrents", "Torrents received", "Torrents recibidos", "Torrents reçus",
+  "受け取ったトレント", "Получено торрентов", "已接收种子")
+X(RemoteRequests,
+  "Bediente Anfragen", "Requests served", "Peticiones atendidas", "Requêtes servies",
+  "処理したリクエスト", "Обработано запросов", "已处理请求")
+X(RemoteCopies,
+  "Kopien der .torrent", "Copies of the .torrent files", "Copias de los .torrent",
+  "Copies des .torrent", ".torrent の保存先", "Копии .torrent", ".torrent 副本")
+X(RemotePrivacy1,
+  "Die Seite antwortet nur Adressen aus dem lokalen Netz",
+  "The page only answers local network addresses, and",
+  "La página solo responde a direcciones de la red local",
+  "La page ne répond qu'aux adresses du réseau local et",
+  "このページはローカルネットワークからの接続にのみ応答し、",
+  "Страница отвечает только адресам локальной сети и",
+  "该页面只响应局域网地址，")
+X(RemotePrivacy2,
+  "und überträgt nur Links: kein Byte des Downloads",
+  "carries links only: not one byte of the download",
+  "y solo transporta enlaces: ni un byte de la descarga",
+  "ne transporte que des liens : aucun octet de téléchargement",
+  "リンクのみを扱います。ダウンロードの中身は",
+  "передаёт только ссылки: ни один байт загрузки",
+  "且只传输链接：下载的内容")
+X(RemotePrivacy3,
+  "geht dort hinein oder hinaus.", "goes in or out through it.",
+  "entra ni sale por ahí.", "n'entre ni ne sort par là.",
+  "一切通りません。", "не проходит через неё.", "不会经由此处进出。")
+X(RemoteStopped,
+  "gestoppt", "stopped", "detenido", "arrêté", "停止中", "остановлен", "已停止")
+X(RemoteServerStopped,
+  "Server gestoppt", "Server stopped", "Servidor detenido", "Serveur arrêté",
+  "サーバーを停止しました", "Сервер остановлен", "服务器已停止")
+X(RemotePageOpen,
+  "Seite erreichbar: %s", "Page live at %s", "Página disponible en %s",
+  "Page ouverte : %s", "ページを公開中: %s", "Страница доступна: %s", "页面已开启：%s")
+X(RemoteRestarted,
+  "Server neu gestartet", "Server restarted", "Servidor reiniciado", "Serveur relancé",
+  "サーバーを再起動しました", "Сервер перезапущен", "服务器已重启")
+X(RemoteStillNoNetwork,
+  "Immer noch kein Netzwerk", "Still no network", "Sigue sin red",
+  "Toujours pas de réseau", "まだネットワークがありません", "Сети по-прежнему нет",
+  "仍然没有网络")
+
+// ---------------------------------------------------------------------------
+// Onglet VPN
+// ---------------------------------------------------------------------------
+X(VpnStatus, "Status", "Status", "Estado", "Statut", "状態", "Состояние", "状态")
+X(VpnConnected,
+  "verbunden", "connected", "conectado", "connecté", "接続済み", "подключено", "已连接")
+X(VpnConnecting,
+  "verbinde …", "connecting…", "conectando…", "connexion…", "接続中…", "подключение…",
+  "连接中…")
+X(VpnFailed, "fehlgeschlagen", "failed", "error", "échec", "失敗", "сбой", "失败")
+X(VpnDisconnected,
+  "getrennt", "disconnected", "desconectado", "déconnecté", "未接続", "отключено", "未连接")
+X(VpnAccount, "Konto", "Account", "Cuenta", "Compte", "アカウント", "Аккаунт", "账号")
+X(VpnCountry, "Land", "Country", "País", "Pays", "国", "Страна", "国家")
+X(VpnCountryAuto,
+  "automatisch", "automatic", "automático", "automatique", "自動", "автоматически", "自动")
+X(VpnRelay, "Relais", "Relay", "Relé", "Relais", "リレー", "Сервер", "中继")
+X(VpnTunnel, "Tunnel", "Tunnel", "Túnel", "Tunnel", "トンネル", "Туннель", "隧道")
+X(VpnNoteLine1,
+  "Die Engine öffnet nie selbst einen Socket: sie fordert ihn",
+  "The engine never opens a socket itself: it asks the active",
+  "El motor nunca abre un socket por su cuenta: se lo pide al",
+  "Le moteur n'ouvre jamais de socket lui-même : il en demande",
+  "エンジンは自らソケットを開かず、現在のトランスポートに",
+  "Движок никогда не открывает сокет сам: он запрашивает его",
+  "引擎从不自行打开套接字，而是向当前传输层申请。")
+X(VpnNoteLine2,
+  "beim aktiven Transport an. Kein Tunnel, keine Verbindung.",
+  "transport for one. No tunnel means no connection is possible.",
+  "transporte activo. Sin túnel no hay conexión posible.",
+  "un au transport actif. Sans tunnel, aucune connexion n'est possible.",
+  "要求します。トンネルがなければ接続はできません。",
+  "у активного транспорта. Нет туннеля — нет соединения.",
+  "没有隧道就无法建立任何连接。")
+X(VpnAccountPrompt,
+  "Mullvad-Kontonummer (16 Ziffern)", "Mullvad account number (16 digits)",
+  "Número de cuenta Mullvad (16 dígitos)", "Numéro de compte Mullvad (16 chiffres)",
+  "Mullvad アカウント番号（16 桁）", "Номер аккаунта Mullvad (16 цифр)",
+  "Mullvad 账号（16 位数字）")
+X(VpnAccountSaved,
+  "Konto gespeichert", "Account saved", "Cuenta guardada", "Compte enregistré",
+  "アカウントを保存しました", "Аккаунт сохранён", "账号已保存")
+X(VpnBusy,
+  "Verbindung läuft bereits", "Already connecting", "Ya se está conectando",
+  "Connexion déjà en cours", "すでに接続処理中です", "Подключение уже идёт", "正在连接中")
+X(VpnCut,
+  "VPN getrennt — Verkehr läuft direkt", "VPN off — traffic goes direct",
+  "VPN cortado: el tráfico va directo", "VPN coupé — le trafic passe en direct",
+  "VPN を切断 — 通信は直接接続になります", "VPN отключён — трафик идёт напрямую",
+  "VPN 已断开 — 流量将直连")
+X(VpnNeedAccount,
+  "Zuerst das Mullvad-Konto eintragen (X)", "Enter your Mullvad account first (X)",
+  "Introduce antes la cuenta Mullvad (X)", "Renseignez d'abord le compte Mullvad (X)",
+  "先に Mullvad アカウントを入力してください（X）",
+  "Сначала укажите аккаунт Mullvad (X)", "请先填写 Mullvad 账号（X）")
+X(VpnConnectForCountries,
+  "Einmal verbinden, um die Länderliste zu erhalten",
+  "Connect once to get the country list",
+  "Conéctate una vez para obtener la lista de países",
+  "Connectez-vous une fois pour obtenir la liste des pays",
+  "国リストを取得するには一度接続してください",
+  "Подключитесь один раз, чтобы получить список стран",
+  "先连接一次以获取国家列表")
+X(VpnCountrySet,
+  "Land: %s", "Country: %s", "País: %s", "Pays : %s", "国: %s", "Страна: %s", "国家：%s")
+
+// ---------------------------------------------------------------------------
+// Onglet Réglages — sections, langue, état, auto-diagnostic
+// ---------------------------------------------------------------------------
+X(SecGeneral,
+  "Allgemein", "General", "General", "Général", "一般", "Общие", "常规")
+X(SecPrivacy,
+  "Privatsphäre", "Privacy", "Privacidad", "Confidentialité", "プライバシー",
+  "Приватность", "隐私")
+X(SecStatus, "Status", "Status", "Estado", "État", "状態", "Состояние", "状态")
+X(SecSelfTest,
+  "Selbsttest", "Self-test", "Autodiagnóstico", "Auto-diagnostic", "自己診断",
+  "Самопроверка", "自检")
+X(FieldLanguage,
+  "Sprache", "Language", "Idioma", "Langue", "言語", "Язык", "语言")
+X(LanguageAuto,
+  "Systemsprache (%s)", "System language (%s)", "Idioma del sistema (%s)",
+  "Langue de la console (%s)", "本体の言語（%s）", "Язык системы (%s)", "系统语言（%s）")
+X(FieldTransport,
+  "Netzwerk-Transport", "Network transport", "Transporte de red", "Transport réseau",
+  "ネットワーク経路", "Сетевой транспорт", "网络传输")
+X(FieldActiveTorrents,
+  "Aktive Torrents", "Active torrents", "Torrents activos", "Torrents actifs",
+  "実行中のトレント", "Активные торренты", "活动种子")
+X(FieldRemoteAccess,
+  "Fernzugriff", "Remote access", "Acceso remoto", "Accès à distance", "リモートアクセス",
+  "Удалённый доступ", "远程访问")
+X(SelfTestHint1,
+  "Prüft die Karte jenseits von 4 GB und ob der Verkehr",
+  "Exercises the card past 4 GB and whether traffic really",
+  "Prueba la tarjeta más allá de 4 GB y si el tráfico sale",
+  "Éprouve la carte au-delà de 4 Go et la sortie réelle",
+  "4 GB を超えるカード書き込みと、通信が本当に",
+  "Проверяет карту за пределом 4 ГБ и то, действительно",
+  "测试存储卡超过 4 GB 的写入，")
+X(SelfTestHint2,
+  "wirklich durch den Tunnel nach draußen geht.",
+  "leaves through the tunnel.",
+  "realmente por el túnel.",
+  "du trafic par le tunnel.",
+  "外へ出ているかを確認します。",
+  "ли трафик выходит через туннель.",
+  "以及流量是否真的经隧道外发。")
+X(SelfTestHint3,
+  "Nichts bleibt zurück.",
+  "Nothing is left behind.",
+  "No queda nada.",
+  "Rien n'est conservé.",
+  "何も残りません。",
+  "Ничего не остаётся.",
+  "不会留下痕迹。")
+X(CheckOk, "OK", "OK", "OK", "OK", "OK", "OK", "OK")
+X(CheckFailed,
+  "FEHLER", "FAILED", "ERROR", "ÉCHEC", "失敗", "СБОЙ", "失败")
+X(CheckSkipped,
+  "ÜBERSPRUNGEN", "SKIPPED", "OMITIDO", "IGNORÉ", "スキップ", "ПРОПУЩЕНО", "已跳过")
+X(DiagBusy,
+  "Selbsttest läuft bereits", "Self-test already running", "El autodiagnóstico ya está en curso",
+  "Auto-diagnostic déjà en cours", "自己診断はすでに実行中です", "Самопроверка уже идёт",
+  "自检已在运行")
+X(DiagStarting,
+  "Start …", "starting…", "iniciando…", "démarrage…", "開始中…", "запуск…", "启动中…")
+X(SettingOn,
+  "%s: ein", "%s: on", "%s: activado", "%s : activé", "%s: オン", "%s: включено", "%s：已开启")
+X(SettingOff,
+  "%s: aus", "%s: off", "%s: desactivado", "%s : désactivé", "%s: オフ", "%s: выключено",
+  "%s：已关闭")
+
+// ---------------------------------------------------------------------------
+// Cases de confidentialité — libellé puis coût réel de l'option
+// ---------------------------------------------------------------------------
+X(TglVpn,
+  "VPN erzwingen", "Require VPN", "Exigir VPN", "Exiger le VPN", "VPN を必須にする",
+  "Требовать VPN", "强制使用 VPN")
+X(TglVpnEffect,
+  "Bricht der Tunnel ab, geht nichts mehr hinaus — dafür steht alles still",
+  "If the tunnel drops, nothing gets out — but everything stops",
+  "Si el túnel cae no sale nada, pero todo se detiene",
+  "Si le tunnel tombe, plus rien ne sort — mais tout s'arrête",
+  "トンネルが切れると何も出ませんが、すべて停止します",
+  "Если туннель упал, наружу ничего не уйдёт — но всё встанет",
+  "隧道断开时不会有任何数据外发，但一切也会停止")
+X(TglHttps,
+  "Nur verschlüsselte Tracker", "Encrypted trackers only", "Solo trackers cifrados",
+  "Trackers chiffrés uniquement", "暗号化トラッカーのみ", "Только шифрованные трекеры",
+  "仅使用加密 Tracker")
+X(TglHttpsEffect,
+  "Lehnt Klartext-Announces ab, die verraten, was Sie laden — weniger Tracker",
+  "Rejects cleartext announces that reveal what you download — fewer trackers",
+  "Rechaza anuncios en claro que revelan qué descargas: menos trackers",
+  "Refuse les annonces en clair, qui révèlent ce que vous téléchargez — moins de trackers",
+  "ダウンロード内容が漏れる平文アナウンスを拒否します — トラッカーは減ります",
+  "Отклоняет открытые анонсы, выдающие содержимое загрузки — трекеров меньше",
+  "拒绝会暴露下载内容的明文通告 — 可用 Tracker 变少")
+X(TglNoDht,
+  "DHT abschalten", "Disable DHT", "Desactivar DHT", "Désactiver le DHT", "DHT を無効化",
+  "Отключить DHT", "关闭 DHT")
+X(TglNoDhtEffect,
+  "Keine UDP-Anfragen im Klartext mehr — deutlich weniger gefundene Peers",
+  "No more cleartext UDP queries — far fewer peers found",
+  "Se acaban las consultas UDP en claro: se encuentran muchos menos pares",
+  "Plus aucune requête UDP en clair — beaucoup moins de pairs trouvés",
+  "平文 UDP クエリがなくなります — 見つかるピアは大幅に減ります",
+  "Больше никаких открытых UDP-запросов — пиров находится намного меньше",
+  "不再发送明文 UDP 查询 — 能找到的节点大幅减少")
+X(TglNoPex,
+  "PEX abschalten", "Disable PEX", "Desactivar PEX", "Désactiver PEX", "PEX を無効化",
+  "Отключить PEX", "关闭 PEX")
+X(TglNoPexEffect,
+  "Peers erfahren nicht mehr, wen Sie kennen — die Suche wird langsamer",
+  "Peers no longer learn who you know — discovery gets slower",
+  "Los pares dejan de saber a quién conoces: el descubrimiento se ralentiza",
+  "Les pairs n'apprennent plus qui vous connaissez — la découverte est plus lente",
+  "あなたが知るピアを相手に教えなくなります — 発見は遅くなります",
+  "Пиры больше не узнают, кого вы знаете — поиск идёт медленнее",
+  "其他节点不再得知你已知的节点 — 发现速度变慢")
+X(TglNoUpload,
+  "Nichts teilen", "Share nothing", "No compartir nada", "Ne rien partager", "共有しない",
+  "Ничего не раздавать", "不做任何分享")
+X(TglNoUploadEffect,
+  "Kein Upload — andere bedienen Sie dann seltener, der Durchsatz sinkt",
+  "No upload at all — others will serve you less, throughput drops",
+  "Sin subida: los demás te servirán menos y baja la velocidad",
+  "Aucun envoi — les autres vous serviront moins, le débit baisse",
+  "アップロードなし — 相手も応じにくくなり、速度が落ちます",
+  "Никакой отдачи — вам будут отдавать реже, скорость упадёт",
+  "完全不上传 — 他人也会更少地给你数据，速度下降")
+X(TglRemote,
+  "Fernzugriff", "Remote access", "Acceso remoto", "Accès à distance", "リモートアクセス",
+  "Удалённый доступ", "远程访问")
+X(TglRemoteEffect,
+  "Webseite im lokalen Netz — kein Byte des Inhalts läuft darüber",
+  "Web page on the local network — no byte of content travels through it",
+  "Página web en la red local: no pasa por ahí ni un byte del contenido",
+  "Page web sur le réseau local — aucun octet du contenu n'y transite",
+  "ローカルネットワーク上のページ — 内容のデータは一切通りません",
+  "Веб-страница в локальной сети — содержимое через неё не идёт",
+  "局域网网页 — 内容数据完全不经过它")
+
+// ---------------------------------------------------------------------------
+// Fenêtres modales
+// ---------------------------------------------------------------------------
+X(ConfirmRemoveTitle,
+  "Diesen Torrent entfernen?", "Remove this torrent?", "¿Quitar este torrent?",
+  "Retirer ce torrent ?", "このトレントを削除しますか？", "Убрать этот торрент?",
+  "移除此种子？")
+X(ConfirmKeep,
+  "aus der Liste nehmen, Dateien behalten", "remove from the list, keep the files",
+  "quitar de la lista y conservar los archivos",
+  "retirer de la liste, garder les fichiers", "一覧から外し、ファイルは残す",
+  "убрать из списка, файлы оставить", "从列表移除，保留文件")
+X(ConfirmDelete,
+  "entfernen UND die geladenen Dateien löschen",
+  "remove AND delete the downloaded files",
+  "quitar Y borrar los archivos descargados",
+  "retirer ET supprimer les fichiers téléchargés",
+  "削除し、ダウンロード済みファイルも消す",
+  "убрать И удалить загруженные файлы", "移除并删除已下载的文件")
+X(ConfirmCancel,
+  "abbrechen", "cancel", "cancelar", "annuler", "キャンセル", "отмена", "取消")
+X(BrowserTitle,
+  ".torrent-Datei öffnen", "Open a .torrent file", "Abrir un archivo .torrent",
+  "Ouvrir un fichier .torrent", ".torrent ファイルを開く", "Открыть файл .torrent",
+  "打开 .torrent 文件")
+X(BrowserEmpty,
+  "Ordner leer — kein .torrent, kein Unterordner",
+  "Folder empty — no .torrent, no subfolder",
+  "Carpeta vacía: ningún .torrent ni subcarpeta",
+  "Dossier vide — aucun .torrent, aucun sous-dossier",
+  "フォルダーは空です — .torrent もサブフォルダーもありません",
+  "Папка пуста — ни .torrent, ни подпапок", "文件夹为空 — 没有 .torrent，也没有子文件夹")
+X(BrowserFooter,
+  "A öffnen / hinzufügen   ·   Y alle .torrent des Ordners   ·   B zurück   ·   X schließen",
+  "A open / add   ·   Y add every .torrent here   ·   B go up   ·   X close",
+  "A abrir / añadir   ·   Y añadir todos los .torrent   ·   B subir   ·   X cerrar",
+  "A ouvrir / ajouter   ·   Y ajouter tous les .torrent   ·   B remonter   ·   X fermer",
+  "A 開く/追加   ·   Y このフォルダーの .torrent をすべて   ·   B 戻る   ·   X 閉じる",
+  "A открыть / добавить   ·   Y добавить все .torrent   ·   B вверх   ·   X закрыть",
+  "A 打开/添加   ·   Y 添加全部 .torrent   ·   B 返回上级   ·   X 关闭")
+X(BrowserTruncated,
+  "Ordner zu groß — Liste gekürzt · A öffnen/hinzufügen · Y alle · B zurück",
+  "Folder too large — list shortened · A open/add · Y add all · B go up",
+  "Carpeta demasiado grande: lista recortada · A abrir/añadir · Y todos · B subir",
+  "Dossier trop grand — liste écourtée · A ouvrir/ajouter · Y tous · B remonter",
+  "フォルダーが大きすぎます — 一覧を短縮 · A 開く/追加 · Y すべて · B 戻る",
+  "Папка слишком большая — список сокращён · A открыть/добавить · Y все · B вверх",
+  "文件夹过大 — 列表已截断 · A 打开/添加 · Y 全部 · B 返回")
+X(NoTorrentInFolder,
+  "Kein .torrent in diesem Ordner", "No .torrent in this folder",
+  "Ningún .torrent en esta carpeta", "Aucun .torrent dans ce dossier",
+  "このフォルダーに .torrent はありません", "В этой папке нет .torrent",
+  "此文件夹中没有 .torrent")
+X(DetailsClose,
+  "B oder Minus zum Schließen", "B or Minus to close", "B o Menos para cerrar",
+  "B ou Moins pour fermer", "B または − で閉じる", "B или «минус», чтобы закрыть",
+  "按 B 或 − 关闭")
+
+// ---------------------------------------------------------------------------
+// Panneau de détail
+// ---------------------------------------------------------------------------
+X(DetState, "Status", "State", "Estado", "État", "状態", "Состояние", "状态")
+X(DetProgress,
+  "Fortschritt", "Progress", "Progreso", "Avancement", "進捗", "Прогресс", "进度")
+X(DetSize, "Größe", "Size", "Tamaño", "Taille", "サイズ", "Размер", "大小")
+X(DetReceived,
+  "Empfangen", "Received", "Recibido", "Reçu", "受信", "Получено", "已接收")
+X(DetSent, "Gesendet", "Sent", "Enviado", "Envoyé", "送信", "Отдано", "已发送")
+X(DetPieces, "Teile", "Pieces", "Piezas", "Pièces", "ピース", "Части", "分片")
+X(DetFiles, "Dateien", "Files", "Archivos", "Fichiers", "ファイル", "Файлы", "文件")
+X(DetRejected,
+  "Verworfene Teile", "Rejected pieces", "Piezas rechazadas", "Pièces rejetées",
+  "破棄したピース", "Отброшено частей", "已丢弃分片")
+X(DetRate,
+  "Geschwindigkeit", "Rate", "Velocidad", "Débit", "速度", "Скорость", "速度")
+X(DetPeersConnected,
+  "Verbundene Peers", "Peers connected", "Pares conectados", "Pairs connectés",
+  "接続中のピア", "Подключено пиров", "已连接节点")
+X(DetPeersBlocking,
+  "… davon blockieren", "…of which blocking", "…de los cuales bloquean",
+  "…dont bloquent", "…うち拒否", "…из них блокируют", "…其中拒绝")
+X(DetPeersKnown,
+  "Bekannte Peers", "Peers known", "Pares conocidos", "Pairs connus", "既知のピア",
+  "Известно пиров", "已知节点")
+X(DetBlocksInFlight,
+  "Blöcke unterwegs", "Blocks in flight", "Bloques en vuelo", "Blocs en vol",
+  "転送中ブロック", "Блоков в пути", "传输中的块")
+X(DetSeedsPeers,
+  "Quellen / Clients", "Seeds / peers", "Fuentes / clientes", "Sources / clients",
+  "シード / ピア", "Сиды / пиры", "种子 / 下载者")
+X(DetEta,
+  "Restzeit", "Time left", "Tiempo restante", "Temps restant", "残り時間",
+  "Осталось", "剩余时间")
+X(DetPrivate,
+  "Privater Torrent", "Private torrent", "Torrent privado", "Torrent privé",
+  "プライベートトレント", "Приватный торрент", "私有种子")
+X(DetPrivateValue,
+  "weder DHT noch PEX (BEP 27)", "no DHT, no PEX (BEP 27)", "ni DHT ni PEX (BEP 27)",
+  "ni DHT ni PEX (BEP 27)", "DHT も PEX も使いません（BEP 27）",
+  "ни DHT, ни PEX (BEP 27)", "不使用 DHT 与 PEX（BEP 27）")
+X(DetHash,
+  "Kennung", "Identifier", "Identificador", "Identifiant", "識別子",
+  "Идентификатор", "标识")
+X(DetOnCard,
+  "Auf der Karte", "On the card", "En la tarjeta", "Sur la carte", "カード上の場所",
+  "На карте", "存储卡位置")
+X(DetTrackers,
+  "Tracker (%u)", "Trackers (%u)", "Trackers (%u)", "Trackers (%u)", "トラッカー (%u)",
+  "Трекеры (%u)", "Tracker（%u）")
+X(DetNoTrackers,
+  "keine — nur das DHT liefert Peers", "none — the DHT is the only source",
+  "ninguno: el DHT es la única fuente", "aucun — le DHT est la seule source",
+  "なし — DHT だけが供給源です", "нет — источник только DHT", "无 — 只能依靠 DHT")
+
+// ---------------------------------------------------------------------------
+// Aides de la barre inférieure — courtes par nécessité
+// ---------------------------------------------------------------------------
+X(HintOpenTorrent,
+  ".torrent öffnen", "Open .torrent", "Abrir .torrent", "Ouvrir un .torrent",
+  ".torrent を開く", "Открыть .torrent", "打开 .torrent")
+X(HintPasteMagnet,
+  "Magnet eingeben", "Type a magnet", "Escribir magnet", "Saisir un magnet",
+  "マグネット入力", "Ввести magnet", "输入磁力链接")
+X(HintMagnetsFile,
+  "magnets.txt", "magnets.txt", "magnets.txt", "magnets.txt", "magnets.txt",
+  "magnets.txt", "magnets.txt")
+X(HintPause,
+  "Pause", "Pause", "Pausa", "Pause", "一時停止", "Пауза", "暂停")
+X(HintDetails,
+  "Details", "Details", "Detalles", "Détails", "詳細", "Подробно", "详情")
+X(HintSkipCheck,
+  "Prüfung übergehen", "Skip check", "Omitir verificación", "Passer la vérif.",
+  "確認を省略", "Пропустить проверку", "跳过校验")
+X(HintRemove,
+  "Entfernen", "Remove", "Quitar", "Retirer", "削除", "Убрать", "移除")
+X(HintTab, "Reiter", "Tab", "Pestaña", "Onglet", "タブ", "Вкладка", "标签页")
+X(HintQuit, "Beenden", "Quit", "Salir", "Quitter", "終了", "Выход", "退出")
+X(HintInstall,
+  "Installieren", "Install", "Instalar", "Installer", "インストール", "Установить", "安装")
+X(HintVerify,
+  "Paket prüfen", "Verify package", "Verificar paquete", "Vérifier le paquet",
+  "パッケージ検証", "Проверить пакет", "校验安装包")
+X(HintRescan,
+  "Neu lesen", "Rescan", "Releer", "Relire", "再読み込み", "Пересканировать", "重新扫描")
+X(HintToggle,
+  "Umschalten", "Toggle", "Cambiar", "Activer / désactiver", "切り替え",
+  "Переключить", "切换")
+X(HintChoose,
+  "Auswählen", "Select", "Elegir", "Choisir", "選択", "Выбрать", "选择")
+X(HintChangeValue,
+  "Wert ändern", "Change value", "Cambiar valor", "Changer la valeur", "値を変更",
+  "Изменить значение", "更改取值")
+X(HintSelfTest,
+  "Selbsttest", "Self-test", "Autodiagnóstico", "Auto-diagnostic", "自己診断",
+  "Самопроверка", "自检")
+X(HintStop, "Stoppen", "Stop", "Detener", "Arrêter", "停止", "Остановить", "停止")
+X(HintStart, "Starten", "Start", "Iniciar", "Démarrer", "開始", "Запустить", "启动")
+X(HintRestart,
+  "Neu starten", "Restart", "Reiniciar", "Relancer", "再起動", "Перезапустить", "重启")
+X(HintConnect,
+  "Verbinden / Trennen", "Connect / Disconnect", "Conectar / Desconectar",
+  "Connecter / Couper", "接続 / 切断", "Подключить / Отключить", "连接 / 断开")
+X(HintAccount,
+  "Mullvad-Konto", "Mullvad account", "Cuenta Mullvad", "Compte Mullvad",
+  "Mullvad アカウント", "Аккаунт Mullvad", "Mullvad 账号")
+X(HintCountry, "Land", "Country", "País", "Pays", "国", "Страна", "国家")
+
+// ---------------------------------------------------------------------------
+// Messages passagers
+// ---------------------------------------------------------------------------
+X(ToastTorrentAdded,
+  "Torrent hinzugefügt", "Torrent added", "Torrent añadido", "Torrent ajouté",
+  "トレントを追加しました", "Торрент добавлен", "已添加种子")
+X(ToastTorrentAddedName,
+  "Torrent hinzugefügt: %s", "Torrent added: %s", "Torrent añadido: %s",
+  "Torrent ajouté : %s", "トレントを追加: %s", "Торрент добавлен: %s", "已添加种子：%s")
+X(ToastTorrentsAdded,
+  "%d Torrents hinzugefügt", "%d torrents added", "%d torrents añadidos",
+  "%d torrents ajoutés", "%d 件のトレントを追加しました", "Добавлено торрентов: %d",
+  "已添加 %d 个种子")
+X(ToastNoMagnetsFile,
+  "Keine Datei sdmc:/torfoil/magnets.txt", "No sdmc:/torfoil/magnets.txt",
+  "No hay sdmc:/torfoil/magnets.txt", "Aucun fichier sdmc:/torfoil/magnets.txt",
+  "sdmc:/torfoil/magnets.txt がありません", "Нет файла sdmc:/torfoil/magnets.txt",
+  "找不到 sdmc:/torfoil/magnets.txt")
+X(ToastMagnetsEmpty,
+  "magnets.txt ist leer — alles schon übernommen",
+  "magnets.txt is empty — everything is already imported",
+  "magnets.txt está vacío: todo ya está importado",
+  "magnets.txt est vide — tout est déjà importé",
+  "magnets.txt は空です — すべて取り込み済みです",
+  "magnets.txt пуст — всё уже импортировано", "magnets.txt 为空 — 全部已导入")
+X(ToastMagnetsNoneOk,
+  "Kein Link angenommen, Gründe stehen in magnets.txt",
+  "No link accepted, reasons noted in magnets.txt",
+  "Ningún enlace aceptado; los motivos están en magnets.txt",
+  "Aucun lien accepté, les raisons sont notées dans magnets.txt",
+  "受け付けたリンクはありません。理由は magnets.txt に記録しました",
+  "Ни одна ссылка не принята, причины записаны в magnets.txt",
+  "没有接受任何链接，原因已写入 magnets.txt")
+X(ToastPaused,
+  "Pausiert", "Paused", "En pausa", "Mis en pause", "一時停止しました", "Поставлено на паузу",
+  "已暂停")
+X(ToastResumed,
+  "Fortgesetzt", "Resumed", "Reanudado", "Repris", "再開しました", "Возобновлено", "已继续")
+X(ToastCheckSkipped,
+  "Prüfung übergangen — der Rest wird neu geladen",
+  "Check skipped — the rest will be downloaded again",
+  "Verificación omitida: el resto se volverá a descargar",
+  "Vérification ignorée — le reste sera retéléchargé",
+  "確認を省略しました — 残りは再ダウンロードします",
+  "Проверка пропущена — остальное будет загружено заново",
+  "已跳过校验 — 其余部分将重新下载")
+X(ToastRemovedKept,
+  "Torrent entfernt (Dateien behalten)", "Torrent removed (files kept)",
+  "Torrent quitado (archivos conservados)", "Torrent retiré (fichiers conservés)",
+  "トレントを削除（ファイルは保持）", "Торрент убран (файлы сохранены)",
+  "已移除种子（保留文件）")
+X(ToastRemovedDeleted,
+  "Torrent entfernt und Dateien gelöscht", "Torrent removed and files deleted",
+  "Torrent quitado y archivos borrados", "Torrent retiré et fichiers supprimés",
+  "トレントを削除し、ファイルも消しました", "Торрент убран, файлы удалены",
+  "已移除种子并删除文件")
+X(ToastInstallBusy,
+  "Es läuft bereits eine Installation", "An install is already running",
+  "Ya hay una instalación en curso", "Une installation est déjà en cours",
+  "すでにインストール中です", "Установка уже идёт", "已有安装正在进行")
+X(ToastOperationBusy,
+  "Es läuft bereits ein Vorgang", "An operation is already running",
+  "Ya hay una operación en curso", "Une opération est déjà en cours",
+  "すでに処理中です", "Операция уже выполняется", "已有操作正在进行")
+X(ToastCancelling,
+  "Installation wird abgebrochen …", "Cancelling the install…",
+  "Cancelando la instalación…", "Annulation de l'installation…",
+  "インストールを中止しています…", "Отмена установки…", "正在取消安装…")
+X(ToastQuitBlocked,
+  "Installation läuft — B zum Abbrechen, bevor Sie beenden",
+  "Install running — press B to cancel before quitting",
+  "Instalación en curso: pulsa B para cancelar antes de salir",
+  "Installation en cours — B pour l'annuler avant de quitter",
+  "インストール中です — 終了する前に B で中止してください",
+  "Идёт установка — нажмите B, чтобы отменить перед выходом",
+  "安装进行中 — 退出前请按 B 取消")
+X(ToastInstallDone,
+  "Installation abgeschlossen", "Install finished", "Instalación terminada",
+  "Installation terminée", "インストールが完了しました", "Установка завершена", "安装完成")
+X(ToastWatchAdded,
+  "Überwachter Ordner: %s", "Watch folder: %s", "Carpeta vigilada: %s",
+  "Dossier surveillé : %s", "監視フォルダー: %s", "Отслеживаемая папка: %s",
+  "监视文件夹：%s")
+X(ToastWatchAddedMany,
+  "%d Torrents hinzugefügt (überwachter Ordner)", "%d torrents added (watch folder)",
+  "%d torrents añadidos (carpeta vigilada)", "%d torrents ajoutés (dossier surveillé)",
+  "%d 件を追加しました（監視フォルダー）", "Добавлено торрентов: %d (отслеживаемая папка)",
+  "已添加 %d 个种子（监视文件夹）")
+X(ToastFromPhone,
+  "Fernzugriff: %s", "Remote: %s", "Remoto: %s", "À distance : %s", "リモート: %s",
+  "Удалённо: %s", "远程：%s")
+
+// ---------------------------------------------------------------------------
+// Bandeau d'installation et clavier
+// ---------------------------------------------------------------------------
+X(OverlayInstalling,
+  "Installation · ", "Installing · ", "Instalando · ", "Installation · ",
+  "インストール中 · ", "Установка · ", "安装中 · ")
+X(OverlayVerifying,
+  "Prüfung · ", "Verifying · ", "Verificando · ", "Vérification · ", "検証中 · ",
+  "Проверка · ", "校验中 · ")
+X(OverlayReading,
+  "Paket wird gelesen …", "Reading the package…", "Leyendo el paquete…",
+  "Lecture du paquet…", "パッケージを読み込み中…", "Чтение пакета…", "正在读取安装包…")
+X(OverlayCancel,
+  "B abbrechen", "B cancel", "B cancelar", "B annuler", "B 中止", "B отмена", "B 取消")
+X(KeyboardMagnet,
+  "Magnet-Link eingeben", "Enter a magnet link", "Introduce un enlace magnet",
+  "Saisir un lien magnet", "マグネットリンクを入力", "Введите magnet-ссылку",
+  "输入磁力链接")
+
+// ---------------------------------------------------------------------------
+// Page web servie au téléphone
+// ---------------------------------------------------------------------------
+X(WebFileSection,
+  ".torrent-Datei", ".torrent file", "Archivo .torrent", "Fichier .torrent",
+  ".torrent ファイル", "Файл .torrent", ".torrent 文件")
+X(WebFilePick,
+  "Eine oder mehrere Dateien wählen", "Choose one or more files",
+  "Elegir uno o varios archivos", "Choisir un ou plusieurs fichiers",
+  "ファイルを 1 つ以上選ぶ", "Выберите один или несколько файлов", "选择一个或多个文件")
+X(WebFileHint,
+  "Der Dialog öffnet Dateien und iCloud. In Safari legt „Verknüpfte Datei laden“ "
+  "eine .torrent-Datei dort ab.",
+  "The picker opens Files and iCloud. In Safari, Download Linked File puts a .torrent there.",
+  "El selector abre Archivos e iCloud. En Safari, «Descargar archivo enlazado» lo deja ahí.",
+  "Le sélecteur ouvre Fichiers et iCloud. Dans Safari, « Télécharger le fichier lié » y "
+  "dépose le .torrent.",
+  "ファイルや iCloud から選べます。Safari の「リンク先のファイルをダウンロード」で保存できます。",
+  "Выбор открывает «Файлы» и iCloud. В Safari «Загрузить файл по ссылке» кладёт .torrent туда.",
+  "选择器可访问「文件」与 iCloud。在 Safari 中使用「下载链接文件」即可保存 .torrent。")
+X(WebMagnetSection,
+  "Magnet-Link", "Magnet link", "Enlace magnet", "Lien magnet", "マグネットリンク",
+  "Magnet-ссылка", "磁力链接")
+X(WebAdd, "Hinzufügen", "Add", "Añadir", "Ajouter", "追加", "Добавить", "添加")
+X(WebMagnetHint,
+  "Ein Link pro Zeile, wenn Sie mehrere einfügen.",
+  "One link per line if you paste several.",
+  "Un enlace por línea si pegas varios.",
+  "Un lien par ligne si vous en collez plusieurs.",
+  "複数貼り付ける場合は 1 行に 1 つ。",
+  "По одной ссылке в строке, если вставляете несколько.",
+  "如需粘贴多个，请每行一个。")
+X(WebOnConsole,
+  "Auf der Konsole", "On the console", "En la consola", "Sur la console", "本体の状況",
+  "На консоли", "主机上")
+X(WebSending,
+  "Wird gesendet …", "Sending…", "Enviando…", "Envoi…", "送信中…", "Отправка…", "正在发送…")
+X(WebNothingToAdd,
+  "Nichts hinzuzufügen.", "Nothing to add.", "Nada que añadir.", "Rien à ajouter.",
+  "追加するものがありません。", "Нечего добавлять.", "没有可添加的内容。")
+X(WebNoAnswer,
+  "Die Konsole antwortet nicht mehr.", "The console is not answering.",
+  "La consola no responde.", "La console ne répond plus.", "本体が応答しません。",
+  "Консоль не отвечает.", "主机没有响应。")
+X(WebEmptyList,
+  "Kein Torrent. Schicken Sie oben einen her.", "No torrents. Send one above.",
+  "Ningún torrent. Envía uno arriba.", "Aucun torrent. Envoyez-en un ci-dessus.",
+  "トレントがありません。上から送ってください。",
+  "Торрентов нет. Отправьте один сверху.", "还没有种子。请在上方发送一个。")
+X(WebResume,
+  "Fortsetzen", "Resume", "Reanudar", "Reprendre", "再開", "Продолжить", "继续")
+X(WebPause, "Pause", "Pause", "Pausa", "Pause", "一時停止", "Пауза", "暂停")
+X(WebRemove, "Entfernen", "Remove", "Quitar", "Retirer", "削除", "Убрать", "移除")
+X(WebConfirmRemove,
+  "Diesen Torrent entfernen? Die Dateien bleiben erhalten.",
+  "Remove this torrent? The files are kept.",
+  "¿Quitar este torrent? Los archivos se conservan.",
+  "Retirer ce torrent ? Les fichiers sont conservés.",
+  "このトレントを削除しますか？ファイルは残ります。",
+  "Убрать этот торрент? Файлы останутся.", "移除此种子？文件将被保留。")
+X(WebUnreadable,
+  "Unlesbare Sendung", "Unreadable upload", "Envío ilegible", "Envoi illisible",
+  "読み取れない送信です", "Нечитаемая отправка", "无法解析的上传")
+X(WebNothingReceived,
+  "Nichts empfangen", "Nothing received", "No se recibió nada", "Rien reçu",
+  "何も受信していません", "Ничего не получено", "未收到任何内容")
+X(WebRefused,
+  "%d abgelehnt", "%d refused", "%d rechazados", "%d refusé(s)", "%d 件を拒否",
+  "отклонено: %d", "已拒绝 %d 个")
+X(WebUnknownAction,
+  "Unbekannte Aktion", "Unknown action", "Acción desconocida", "Action inconnue",
+  "不明な操作です", "Неизвестное действие", "未知操作")
+X(WebNoTorrentGiven,
+  "Kein Torrent angegeben", "No torrent given", "No se indicó ningún torrent",
+  "Torrent non désigné", "トレントが指定されていません", "Торрент не указан",
+  "未指定种子")
+
+// ---------------------------------------------------------------------------
+// En-tête écrit dans magnets.txt à sa création — le fichier doit se comprendre
+// sans avoir lu la documentation, dans la langue de celui qui l'ouvre.
+// ---------------------------------------------------------------------------
+X(MagnetsFileHead1,
+  "# Ein Magnet-Link pro Zeile. In Torfoil: Reiter Torrents, ZL zum Einlesen.",
+  "# One magnet link per line. In Torfoil: Torrents tab, ZL to import.",
+  "# Un enlace magnet por línea. En Torfoil: pestaña Torrents, ZL para importar.",
+  "# Un lien magnet par ligne. Dans Torfoil : onglet Torrents, ZL pour importer.",
+  "# 1 行に 1 つのマグネットリンク。Torfoil のトレントタブで ZL を押すと取り込みます。",
+  "# По одной magnet-ссылке в строке. В Torfoil: вкладка «Торренты», ZL для импорта.",
+  "# 每行一个磁力链接。在 Torfoil 的种子标签页按 ZL 导入。")
+X(MagnetsFileHead2,
+  "# Angenommene Links werden hier automatisch entfernt.",
+  "# Accepted links are removed from here automatically.",
+  "# Los enlaces aceptados se eliminan de aquí automáticamente.",
+  "# Les liens acceptés sont retirés d'ici automatiquement.",
+  "# 受け付けたリンクはここから自動的に削除されます。",
+  "# Принятые ссылки удаляются отсюда автоматически.",
+  "# 已接受的链接会自动从这里移除。")
+X(SettingsFileHead,
+  "# Torfoil-Einstellungen — hier oder im Reiter Einstellungen änderbar",
+  "# Torfoil settings — editable here or from the Settings tab",
+  "# Ajustes de Torfoil — editables aquí o desde la pestaña Ajustes",
+  "# Réglages Torfoil — modifiables ici ou depuis l'onglet Réglages",
+  "# Torfoil の設定 — ここでも設定タブでも変更できます",
+  "# Настройки Torfoil — меняются здесь или во вкладке «Настройки»",
+  "# Torfoil 设置 — 可在此处或设置标签页中修改")
+X(RemoteNoLan,
+  "Kein lokales Netz (WLAN aus?)", "No local network (Wi-Fi off?)",
+  "Sin red local (¿Wi-Fi apagado?)", "Pas de réseau local (Wi-Fi éteint ?)",
+  "ローカルネットワークがありません（Wi-Fi はオフ？）",
+  "Нет локальной сети (Wi-Fi выключен?)", "没有局域网（Wi-Fi 关闭了？）")
+X(WebBadMethod,
+  "Unerwartete Methode", "Unexpected method", "Método inesperado", "Méthode inattendue",
+  "予期しないメソッドです", "Неожиданный метод", "意外的请求方法")
+X(MagnetsIgnored,
+  "# übergangen (kein Magnet): ", "# ignored (not a magnet): ",
+  "# ignorado (no es un magnet): ", "# ignoré (pas un magnet) : ",
+  "# 無視（マグネットではありません）: ", "# пропущено (не magnet): ",
+  "# 已忽略（不是磁力链接）：")
+
+// ---------------------------------------------------------------------------
+// Choix de la langue au premier lancement
+// ---------------------------------------------------------------------------
+// Cet écran est le seul que tout le monde voit dans une langue qu'il n'a pas
+// choisie. Il ne pose donc qu'une question, et la pose sept fois.
+X(LangPickTitle,
+  "Sprache", "Language", "Idioma", "Langue", "言語", "Язык", "语言")
+X(LangPickHint,
+  "Mit ↑↓ auswählen, mit A bestätigen. Später in den Einstellungen änderbar.",
+  "Choose with ↑↓, confirm with A. Changeable later in Settings.",
+  "Elige con ↑↓ y confirma con A. Se puede cambiar luego en Ajustes.",
+  "Choisir avec ↑↓, valider avec A. Modifiable ensuite dans les Réglages.",
+  "↑↓ で選び、A で決定。あとで設定から変更できます。",
+  "Выберите ↑↓, подтвердите A. Позже можно изменить в настройках.",
+  "用 ↑↓ 选择，A 确认。稍后可在设置中更改。")
+
+// ---------------------------------------------------------------------------
+// Onglet Téléphone : point d'accès et codes QR
+// ---------------------------------------------------------------------------
+X(TabPhone,
+  "Telefon", "Phone", "Teléfono", "Téléphone", "スマホ", "Телефон", "手机")
+X(PhoneTitle,
+  "Import vom Telefon", "Import from a phone", "Importar desde el teléfono",
+  "Import depuis un téléphone", "スマホから追加",
+  "Импорт с телефона", "从手机导入")
+X(PhoneIntro1,
+  "Die Konsole öffnet ein eigenes WLAN und zeigt einen QR-Code.",
+  "The console opens its own Wi-Fi network and shows a QR code.",
+  "La consola crea su propia red Wi-Fi y muestra un código QR.",
+  "La console crée son propre réseau Wi-Fi et affiche un code QR.",
+  "本体が自分の Wi-Fi を作り、QR コードを表示します。",
+  "Консоль создаёт свою сеть Wi-Fi и показывает QR-код.",
+  "主机会创建自己的 Wi-Fi 并显示二维码。")
+X(PhoneIntro2,
+  "Das Telefon tritt bei, öffnet eine Seite und legt dort seine Links ab.",
+  "The phone joins it, opens a page, and drops its links there.",
+  "El teléfono se une, abre una página y deja ahí sus enlaces.",
+  "Le téléphone le rejoint, ouvre une page, et y dépose ses liens.",
+  "スマホが接続し、ページを開いてリンクを送ります。",
+  "Телефон подключается, открывает страницу и оставляет ссылки.",
+  "手机加入后打开网页，在那里放入链接。")
+X(PhoneWarn1,
+  "Solange hat die Konsole kein Internet:",
+  "While it is up the console has no internet:",
+  "Mientras tanto la consola no tiene internet:",
+  "Pendant ce temps la console n'a plus Internet :",
+  "この間、本体はネットに繋がりません：",
+  "В это время консоль без интернета:",
+  "此期间主机没有网络：")
+X(PhoneWarn2,
+  "Die Downloads laufen weiter, sobald der Zugangspunkt zu ist.",
+  "Downloads resume as soon as the access point is closed.",
+  "Las descargas se reanudan al cerrar el punto de acceso.",
+  "les téléchargements reprennent dès que le point d'accès est refermé.",
+  "アクセスポイントを閉じればダウンロードは再開します。",
+  "Как только точка доступа закроется, загрузки возобновятся.",
+  "关闭热点后下载会立即继续。")
+X(PhoneOpenHint,
+  "A zum Öffnen", "A to open", "A para abrir", "A pour ouvrir",
+  "A で開始", "A — открыть", "按 A 开启")
+X(PhoneFailed,
+  "Der Zugangspunkt startete nicht", "The access point did not start",
+  "El punto de acceso no arrancó", "Le point d'accès n'a pas démarré",
+  "アクセスポイントを開始できません",
+  "Точка доступа не запустилась", "热点未能启动")
+X(PhoneStep1,
+  "1. Dem Netz der Konsole beitreten", "1. Join the console's network",
+  "1. Únete a la red de la consola", "1. Rejoindre le réseau de la console",
+  "1. 本体の Wi-Fi に接続",
+  "1. Подключитесь к сети консоли", "1. 加入主机的网络")
+X(PhoneStep2,
+  "2. Die Seite öffnen", "2. Open the page", "2. Abre la página", "2. Ouvrir la page",
+  "2. ページを開く", "2. Откройте страницу", "2. 打开网页")
+X(PhoneAim1,
+  "Mit der Telefonkamera auf diesen Code zielen",
+  "Point the phone camera at this code",
+  "Apunta la cámara del teléfono a este código",
+  "Visez ce code avec l'appareil photo du téléphone",
+  "スマホのカメラをこのコードに向けてください",
+  "Наведите камеру телефона на этот код",
+  "用手机相机对准此二维码")
+X(PhoneAim2,
+  "Diesen Code scannen: die Seite öffnet sich im Browser",
+  "Scan this code: the page opens in the browser",
+  "Escanea este código: la página se abre en el navegador",
+  "Visez ce code : la page s'ouvre dans le navigateur",
+  "このコードを読み取るとブラウザが開きます",
+  "Отсканируйте код — страница откроется в браузере",
+  "扫描此码，网页会在浏览器中打开")
+X(PhoneNetwork,
+  "Netz: %s", "Network: %s", "Red: %s", "Réseau : %s", "ネットワーク：%s",
+  "Сеть: %s", "网络：%s")
+X(PhonePassword,
+  "Passwort: %s", "Password: %s", "Contraseña: %s", "Mot de passe : %s",
+  "パスワード：%s", "Пароль: %s", "密码：%s")
+X(PhoneThenY,
+  "Wenn das Telefon verbunden ist, Y drücken",
+  "Once the phone is connected, press Y",
+  "Cuando el teléfono esté conectado, pulsa Y",
+  "Une fois le téléphone connecté, appuyez sur Y",
+  "スマホが接続されたら Y を押します",
+  "Когда телефон подключён, нажмите Y",
+  "手机连上后按 Y")
+X(PhoneWaiting,
+  "Warte auf eine Sendung", "Waiting for a send", "Esperando un envío",
+  "En attente d'un envoi", "送信待ち",
+  "Ожидание отправки", "等待发送")
+X(PhoneReceived,
+  "%u Torrent(s) empfangen", "%u torrent(s) received", "%u torrent(s) recibidos",
+  "%u torrent(s) reçu(s)", "%u 件受信", "Получено: %u", "已接收 %u 个")
+X(PhoneOpened,
+  "Zugangspunkt offen — Internet pausiert",
+  "Access point up — internet paused for the import",
+  "Punto de acceso abierto — internet en pausa",
+  "Point d'accès levé — Internet coupé le temps de l'import",
+  "アクセスポイント開始 — ネットは一時停止",
+  "Точка доступа поднята — интернет приостановлен",
+  "热点已开 — 网络暂停")
+X(PhoneClosed,
+  "Zugangspunkt geschlossen", "Access point closed", "Punto de acceso cerrado",
+  "Point d'accès refermé", "アクセスポイントを閉じました",
+  "Точка доступа закрыта", "热点已关闭")
+X(PhoneDiagRunning,
+  "%s — Diagnose läuft…", "%s — running diagnosis…", "%s — diagnóstico en curso…",
+  "%s — diagnostic en cours…", "%s — 診断中…",
+  "%s — идёт диагностика…", "%s — 正在诊断…")
+X(PhoneDiagLogged,
+  "%s — Details in torfoil.log", "%s — details in torfoil.log",
+  "%s — detalles en torfoil.log", "%s — détail dans torfoil.log",
+  "%s — 詳細は torfoil.log", "%s — подробности в torfoil.log",
+  "%s — 详情见 torfoil.log")
+X(FieldAccessPoint,
+  "Zugangspunkt", "Access point", "Punto de acceso", "Point d'accès",
+  "アクセスポイント", "Точка доступа", "热点")
+X(AccessPointOff,
+  "geschlossen", "closed", "cerrado", "fermé", "閉", "закрыта", "已关闭")
+X(LibraryEmptyHintFiles,
+  "Heruntergeladene Dateien erscheinen hier — X zum Neulesen",
+  "Downloaded files appear here — X to rescan",
+  "Los archivos descargados aparecen aquí — X para releer",
+  "Les fichiers téléchargés apparaissent ici — X pour relire",
+  "ダウンロードしたファイルがここに表示されます — X で再読み込み",
+  "Загруженные файлы появятся здесь — X для обновления",
+  "下载的文件会在此处显示 — 按 X 重新扫描")
+X(HintOpen,
+  "Öffnen", "Open", "Abrir", "Ouvrir", "開く", "Открыть", "开启")
+X(HintClose,
+  "Schließen", "Close", "Cerrar", "Fermer", "閉じる", "Закрыть", "关闭")
+X(HintPhoneJoined,
+  "Telefon verbunden", "Phone connected", "Teléfono conectado", "Téléphone connecté",
+  "スマホ接続済み", "Телефон подключён", "手机已连接")
