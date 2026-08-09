@@ -19,7 +19,7 @@ APP_VERSION := 0.1.0
 
 TARGET   := torfoil
 BUILD    := build
-SOURCES  := source source/bt source/net source/net/wg source/util source/install source/ui \
+SOURCES  := source source/bt source/net source/net/wg source/util source/ui \
             source/vpn source/diag \
             third_party/lwip/src/core third_party/lwip/src/core/ipv4
 DATA     := data

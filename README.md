@@ -1,27 +1,32 @@
 # Torfoil
 
 A native BitTorrent client for the Nintendo Switch (Atmosphère), with a built-in
-**Mullvad WireGuard tunnel** and direct `.nsp` / `.xci` installation through
-`ncm`/`ns`. Like Tinfoil, except the source is a torrent.
+**Mullvad WireGuard tunnel**.
+
+## Torfoil does not install anything
+
+Torfoil is a downloader, and only that. It never reads Nintendo keys, never
+decrypts game content, and never writes to system storage. Its job ends when the
+file is on the SD card.
+
+To install content you are legally entitled to (your own dumps, homebrew), use a
+separate title manager such as [DBI](https://github.com/rashevskyv/dbi).
 
 > The code and the in-app interface are in French. Translation contributions are
 > welcome.
 
-## Install
+## Setup
 
 Copy `torfoil.nro` to `sdmc:/switch/` and launch it from the homebrew menu.
 `torfoil-diag.nro` is optional: it is the text-console diagnostic build, useful
 when the main application refuses to start.
-
-Installing games requires `prod.keys` at `sdmc:/switch/prod.keys` (dump it with
-Lockpick_RCM). Downloading does not.
 
 ## Usage
 
 | Tab | Controls |
 |---|---|
 | Torrents | **X** paste a magnet · **ZL** import `magnets.txt` · **Y** pause/resume · **B** skip verification · **ZR** remove |
-| Library | **A** install · **Y** verify package · **X** rescan folder · **B** cancel current operation |
+| Library | **X** rescan folder. A read-only view of what the downloads have put on the card |
 | VPN | **X** Mullvad account (16 digits) · **A** connect/disconnect · **Y** country |
 | Settings | **↑↓** select · **A** toggle · **Y** self-test |
 
@@ -94,7 +99,7 @@ tunnel.
         │   ├── BsdTransport      libnx sockets      │
         │   └── Tunnel            lwIP ⇄ WireGuard   │
         ├───────────────────────────────────────────┤
-        │  Storage (SD)  ·  Installer (ncm/ns)       │
+        │  Storage (SD)                              │
         └───────────────────────────────────────────┘
 ```
 
@@ -111,8 +116,8 @@ The core depends on neither libnx nor the hardware, and builds with g++:
 bash tests/run.sh
 ```
 
-155 assertions under AddressSanitizer and UBSan: SHA-1, bencode, magnet, picker,
-storage, multi-file boundaries, PFS0/NCA/CNMT parsing, plus the crypto checked
+118 assertions under AddressSanitizer and UBSan: SHA-1, bencode, magnet, picker,
+storage, multi-file boundaries, plus the crypto checked
 against the **RFC 7693** (BLAKE2s), **RFC 8439** (ChaCha20-Poly1305) and
 **RFC 7748** (X25519) vectors, plus a full WireGuard handshake between two
 instances, replay and tampering included.
@@ -200,11 +205,10 @@ location.
 - **Console sleeps → download stops.** `appletSetAutoSleepDisabled` is forced
   during transfers, so the screen must stay on.
 - **Applet mode gives ~448 MB of heap.** The engine streams (16 KB blocks, SHA-1
-  in 64 KB chunks). An NSP forwarder grants full RAM and much better throughput.
+  in 64 KB chunks). Launching from a game title grants full RAM and much better
+  throughput.
 - **Mullvad dropped port forwarding** in 2023: downloads are normal, seeding is
   weak (no incoming connections).
-- **NSZ/XCZ cannot be installed** yet: decompress them to `.nsp`/`.xci` first.
-  They appear greyed out in the library.
 - **FAT32 SD cards** are handled. Files over 4 GB are created as Horizon
   *concatenation files*, the mechanism built for exactly this. No need to
   reformat to exFAT.
@@ -221,7 +225,7 @@ location.
 
 | Component | Status |
 |---|---|
-| Crypto, bencode, magnet, picker, storage, PFS0, NCA, CNMT | 155 tests under ASan/UBSan |
+| Crypto, bencode, magnet, picker, storage | 118 tests under ASan/UBSan |
 | Multi-file torrents, piece boundary mid-file | Proven: exact bytes on both sides |
 | Peer discovery (DHT) | Proven on PC: 489 peers, no tracker |
 | Full download | Proven on PC: 2.44 GB at 8.1 MB/s, SHA-1 verified |
@@ -231,9 +235,6 @@ location.
 | libnx sockets | Verified on console |
 | Mullvad login, relays, WireGuard tunnel | Verified on console, tunnel up |
 | Files > 4 GB (FAT32) | Verified on console: a 23 GB and a 12.5 GB file written to a FAT32 card |
-| Reading an NSP: encrypted NCA → CNMT → contents | Proven on PC with a forged, encrypted package |
-| Package verification (**Y**) | Proven: a single flipped bit or a truncated file is caught |
-| `ncm` writes to system memory | Not exercised here, **checkable via the self-test (Y)** |
 | A >4 GB file on a real card | Not exercised here, **checkable via the self-test (Y)** |
 | Traffic actually leaving through the VPN | Not exercised here, **checkable via the self-test (Y)** |
 
@@ -251,12 +252,10 @@ software ChaCha20-Poly1305 on every tunnelled packet.
 
 | Symptom | Actual cause |
 |---|---|
-| "SD write failed" | A Switch game exceeds 4 GB, and such a file cannot exist on a FAT32 card. Switched to Horizon *concatenation files*, which present a split directory as a single file. |
+| "SD write failed" | A large download exceeds 4 GB, and such a file cannot exist on a FAT32 card. Switched to Horizon *concatenation files*, which present a split directory as a single file. |
 | "SD write failed", again | The fix above only applied to missing files. Ordinary files left by the previous version stayed ordinary (still capped at 4 GB) and opening them reported nothing. The code now tests whether an existing file can reach its final size, and recreates it otherwise. |
-| Library working "halfway" | In-progress downloads showed up as installable. They are now greyed out with their progress, and the recursive scan no longer stalls the display every 10 s. |
-| One file accepted, the other "not an NSP" | A torrent downloads its pieces out of order: a file can reach its final size before its header has arrived. The library now reads the first bytes and says so, instead of blaming the file. |
-| Install freezing the whole app | It was a modal dialog with no way to switch tabs. It is now a banner: installation runs in the background like a download, **B** cancels. |
-| A game permanently unreadable | Torrents were not resumed on restart: the download simply stopped, and the file stayed forever without its header. The magnet is now kept and the torrent restarted automatically. |
+| Library working "halfway" | In-progress downloads looked finished. They are now greyed out with their progress, and the recursive scan no longer stalls the display every 10 s. |
+| A download permanently stuck | Torrents were not resumed on restart: the download simply stopped, and the file stayed forever incomplete. The magnet is now kept and the torrent restarted automatically. |
 | Only three peers with the VPN on | The tunnel's lwIP stack had 96 buffers shared across every connection. The ceiling was not the number of peers found but that pool: raised to 2048, with 96 TCP connections available. |
 | Ridiculous throughput | A block that was never served stayed counted as "in flight" forever: the peer looked saturated and was never sent another request. Peers died one by one. |
 | Few peers | The network driver allocates a shared pool; 32 KB of receive buffer per socket exhausted it after about thirty connections, with no error reported. |
@@ -267,20 +266,10 @@ software ChaCha20-Poly1305 on every tunnelled packet.
 | ~130 KB/s per peer | A TCP connection cannot exceed its receive window divided by the round-trip time. At 16 KB and ~125 ms, that is exactly 131 KB/s. Raised to 64 KB, the libnx default. |
 | Window collapsing on every completed piece | SHA-1 over 2 MiB plus the SD write ran on the network loop: for tens of milliseconds nobody read the sockets, they overflowed, and TCP read those losses as congestion. Piece completion now runs on a dedicated thread behind a bounded queue. |
 
-### Before installing: verify
-
-**Y** in the library replays the whole installation chain *without writing
-anything*: keys, container, meta NCA decryption, CNMT, presence and size of each
-content, then a full SHA-256 recomputation of each. An incomplete or damaged
-package is caught before anything touches system memory; and if an install then
-fails despite a successful verification, the problem is in the installation, not
-in the package.
-
 ### Diagnostic log
 
-`sdmc:/torfoil/torfoil.log` records startup, service status, storage errors, VPN
-activity and installs. This is the file to attach when something goes wrong on
-hardware.
+`sdmc:/torfoil/torfoil.log` records startup, service status, storage errors and
+VPN activity. This is the file to attach when something goes wrong on hardware.
 
 A write failure now appears with its full context: system cause, target file,
 piece, absolute offset:
@@ -288,7 +277,7 @@ piece, absolute offset:
 ```
 [ 12345 ms] ÉCHEC écriture : écriture SD : fichier trop gros pour ce système de
             fichiers (carte en FAT32 ? la limite y est de 4 Go) — sdmc:/torfoil/
-            downloads/FC26/data.nsp | pièce 2048, décalage 0, 16384 octets,
+            downloads/big.iso | pièce 2048, décalage 0, 16384 octets,
             position absolue 4294967296
 ```
 
@@ -297,18 +286,16 @@ looking at a full SD card while the real problem was FAT32's size limit.
 
 ### Self-test: what only the console can settle
 
-Three things cannot be checked anywhere else: that an SD card accepts a file over
-4 GB, that the installation services agree to write, and that traffic really
-leaves through the tunnel. Rather than leave them in the dark, the app tests
-itself: **Settings tab, Y**.
+Two things cannot be checked anywhere else: that an SD card accepts a file over
+4 GB, and that traffic really leaves through the tunnel. Rather than leave them
+in the dark, the app tests itself: **Settings tab, Y**.
 
 | Check | What it actually does |
 |---|---|
 | SD card | Creates a split file, writes 64 KB **at 4 GB + 4 KB**, reads it back, compares, deletes |
-| Installation | Reserves an `ncm` placeholder, writes 128 KB, checks the size, deletes |
 | VPN | Queries `am.i.mullvad.net` through the active transport, so Mullvad answers, not us |
 
-Nothing is installed, nothing is kept, and every result also goes to the log. A
+Nothing is kept, and every result also goes to the log. A
 failure arrives with its system error code, which is usually enough to identify
 the cause with no further round trip.
 
@@ -328,8 +315,8 @@ validate anything here. That is what motivated the built-in self-test.
 
 [nxTransmission](https://github.com/t-flo/nxTransmission) is a port of
 Transmission 2.94 to the Switch, abandoned in 2020. It is a daemon driven from a
-browser on another device, with no on-console UI and no installer. Its socket
-tuning was a useful reference.
+browser on another device, with no on-console UI. Its socket tuning was a useful
+reference.
 
 ## Licence
 

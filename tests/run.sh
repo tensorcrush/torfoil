@@ -11,9 +11,6 @@ g++ -std=gnu++17 -O1 -g -Wall -Wextra -Wno-unused-parameter \
     source/util/bytes.cpp source/util/sha1.cpp source/util/log.cpp \
     source/bt/bencode.cpp source/bt/magnet.cpp source/bt/metainfo.cpp \
     source/bt/piece_picker.cpp source/bt/storage.cpp \
-    source/install/archive.cpp source/install/nca.cpp source/install/keys.cpp \
-    source/install/verify.cpp \
-    -lmbedcrypto \
     source/net/wg/blake2s.c source/net/wg/x25519.c source/net/wg/chacha20poly1305.c \
     source/net/wg/wireguard.cpp \
     -o "${TMPDIR:-/tmp}/torfoil_tests"

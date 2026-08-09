@@ -21,7 +21,7 @@ APP_VERSION := 0.1.0
 
 TARGET   := torfoil-diag
 BUILD    := build-diag
-SOURCES  := tools source/bt source/net source/net/wg source/util source/install source/diag
+SOURCES  := tools source/bt source/net source/net/wg source/util source/diag
 INCLUDES := include third_party/lwip/src/include
 DATA     :=
 

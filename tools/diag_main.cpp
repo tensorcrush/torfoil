@@ -60,13 +60,6 @@ int main(int argc, char* argv[]) {
     line("socket        : %s (0x%08x)", R_SUCCEEDED(sock_rc) ? "ok" : "ECHEC", sock_rc);
     util::log_fmt("socket 0x%08x", sock_rc);
 
-    const Result ncm_rc = ncmInitialize();
-    line("ncm           : %s (0x%08x)", R_SUCCEEDED(ncm_rc) ? "ok" : "ECHEC", ncm_rc);
-    util::log_fmt("ncm 0x%08x", ncm_rc);
-
-    const Result ns_rc = nsInitialize();
-    line("ns            : %s (0x%08x)", R_SUCCEEDED(ns_rc) ? "ok" : "ECHEC", ns_rc);
-    util::log_fmt("ns 0x%08x", ns_rc);
     line("");
 
     const std::string dir = "sdmc:/torfoil/downloads";
@@ -109,8 +102,6 @@ int main(int argc, char* argv[]) {
         consoleUpdate(nullptr);
     }
 
-    if (R_SUCCEEDED(ns_rc)) nsExit();
-    if (R_SUCCEEDED(ncm_rc)) ncmExit();
     if (R_SUCCEEDED(sock_rc)) socketExit();
     consoleExit(nullptr);
     return 0;

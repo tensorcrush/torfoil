@@ -135,77 +135,6 @@ Check check_large_file(const std::string& dir, const StepFn& step) {
     return pass(name, "écriture et relecture à 4 Go + 4 Ko : identiques");
 }
 
-Check check_install_services(const StepFn& step) {
-    const std::string name = "Installation : services ncm";
-    if (step) step(name);
-
-#ifndef __SWITCH__
-    return fail(name, "vérifiable uniquement sur console");
-#else
-    NcmContentStorage storage;
-    Result rc = ncmOpenContentStorage(&storage, NcmStorageId_SdCard);
-    if (R_FAILED(rc)) {
-        char code[24];
-        std::snprintf(code, sizeof(code), "0x%x", rc);
-        return fail(name, std::string("ncmOpenContentStorage refusé [") + code + "]");
-    }
-
-    NcmPlaceHolderId placeholder;
-    rc = ncmContentStorageGeneratePlaceHolderId(&storage, &placeholder);
-    if (R_FAILED(rc)) {
-        ncmContentStorageClose(&storage);
-        char code[24];
-        std::snprintf(code, sizeof(code), "0x%x", rc);
-        return fail(name, std::string("GeneratePlaceHolderId refusé [") + code + "]");
-    }
-
-    // Identifiant de contenu bidon : rien ne sera enregistré, l'emplacement est
-    // supprimé quoi qu'il arrive.
-    NcmContentId content_id;
-    util::random_bytes(content_id.c, sizeof(content_id.c));
-
-    constexpr size_t kSize = 128 * 1024;
-    ncmContentStorageDeletePlaceHolder(&storage, &placeholder);
-    rc = ncmContentStorageCreatePlaceHolder(&storage, &content_id, &placeholder,
-                                            static_cast<s64>(kSize));
-    if (R_FAILED(rc)) {
-        ncmContentStorageClose(&storage);
-        char code[24];
-        std::snprintf(code, sizeof(code), "0x%x", rc);
-        return fail(name, std::string("CreatePlaceHolder refusé [") + code +
-                              "] — mémoire système pleine ?");
-    }
-
-    std::vector<uint8_t> payload(kSize);
-    fill_pattern(payload.data(), payload.size(), 0xBADF00D);
-
-    rc = ncmContentStorageWritePlaceHolder(&storage, &placeholder, 0, payload.data(),
-                                           payload.size());
-    const bool wrote = R_SUCCEEDED(rc);
-    if (wrote) ncmContentStorageFlushPlaceHolder(&storage);
-
-    s64 size_back = 0;
-    const bool sized =
-        wrote && R_SUCCEEDED(ncmContentStorageGetSizeFromPlaceHolderId(&storage, &size_back,
-                                                                       &placeholder));
-
-    // Nettoyage systématique : ce test ne doit rien laisser derrière lui.
-    ncmContentStorageDeletePlaceHolder(&storage, &placeholder);
-    ncmContentStorageClose(&storage);
-
-    if (!wrote) {
-        char code[24];
-        std::snprintf(code, sizeof(code), "0x%x", rc);
-        return fail(name, std::string("WritePlaceHolder refusé [") + code + "]");
-    }
-    if (!sized || static_cast<uint64_t>(size_back) < kSize) {
-        return fail(name, "l'emplacement ne contient pas ce qui y a été écrit");
-    }
-    return pass(name, "réservation, écriture de 128 Ko, relecture, suppression : "
-                      "l'installation peut écrire");
-#endif
-}
-
 Check check_vpn_exit(bt::Session& session, const StepFn& step) {
     const std::string name = "VPN : sortie réelle du trafic";
     if (step) step(name);
@@ -271,7 +200,6 @@ Report run_all(const std::string& download_dir, bt::Session& session, const Step
     util::log_line("auto-diagnostic : début");
 
     report.checks.push_back(check_large_file(download_dir, step));
-    report.checks.push_back(check_install_services(step));
     report.checks.push_back(check_vpn_exit(session, step));
 
     for (const Check& c : report.checks) {

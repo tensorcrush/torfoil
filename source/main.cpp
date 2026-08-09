@@ -148,15 +148,6 @@ int main(int argc, char* argv[]) {
     }
     util::log_line("polices : pl:u initialisé");
 
-    // Services d'installation. Leur absence n'empêche pas de télécharger : on
-    // continue, et l'onglet Bibliothèque signalera l'échec au moment d'installer.
-    const Result ncm_rc = ncmInitialize();
-    const Result ns_rc = nsInitialize();
-    const bool ncm_ready = R_SUCCEEDED(ncm_rc);
-    const bool ns_ready = R_SUCCEEDED(ns_rc);
-    util::log_fmt("installation : ncm %s (0x%08x), ns %s (0x%08x)", ncm_ready ? "ok" : "ÉCHEC",
-                  ncm_rc, ns_ready ? "ok" : "ÉCHEC", ns_rc);
-
     {
         ui::App app;
         std::string err;
@@ -177,8 +168,6 @@ int main(int argc, char* argv[]) {
     }
 
     util::log_close();
-    if (ns_ready) nsExit();
-    if (ncm_ready) ncmExit();
     plExit();
     socketExit();
     return 0;

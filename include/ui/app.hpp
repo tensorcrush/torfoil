@@ -3,7 +3,6 @@
 #include <switch.h>
 
 #include <atomic>
-#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -17,31 +16,15 @@
 
 namespace ui {
 
-// Une installation dure plusieurs minutes : elle tourne sur son propre thread
-// pour que l'interface reste vivante et annulable.
-struct InstallJob {
-    std::thread worker;
-    std::atomic<bool> running{false};
-    std::atomic<bool> cancel{false};
-    std::atomic<uint64_t> done{0};
-    std::atomic<uint64_t> total{0};
-
-    std::mutex mutex;
-    std::string step;
-    std::string result;
-    bool finished = false;
-    bool ok = false;
-    std::string source_name;
-    bool verify_only = false;
-};
-
+// Un fichier posé sur la carte par un téléchargement. Torfoil n'en fait rien
+// d'autre que le montrer : ce qu'on installe et comment ne le regarde pas.
 struct LibraryEntry {
     std::string path;
     std::string name;
     uint64_t size = 0;
-    std::string kind;  // NSP, NSZ, XCI, XCZ
-    bool installable = true;
-    std::string status;  // raison affichée quand ce n'est pas installable
+    std::string kind;    // extension en majuscules, vide si le nom n'en a pas
+    bool ready = true;   // faux tant que le torrent qui l'écrit n'a pas fini
+    std::string status;  // « en cours — 42% » le cas échéant
 };
 
 class App {
@@ -71,10 +54,6 @@ private:
     void add_magnet_flow();
     void import_magnets_file();
     void refresh_library();
-    void install_selected();
-    void verify_selected();
-    void draw_install_overlay();
-    void poll_install_job();
     void toast(const std::string& message, bool error = false);
 
     int& selection();
@@ -97,8 +76,6 @@ private:
     std::string toast_text_;
     bool toast_error_ = false;
     uint64_t toast_until_ms_ = 0;
-
-    std::unique_ptr<InstallJob> install_job_;
 
     Settings settings_;
     int settings_cursor_ = 0;

@@ -1,9 +1,8 @@
 // Auto-diagnostic exécuté sur la console.
 //
-// Trois choses ne peuvent être vérifiées que là : qu'une carte SD accepte un
-// fichier de plus de 4 Go, que les services d'installation répondent, et que le
-// trafic sort réellement par le tunnel. Aucun test sur PC, aucun émulateur ne
-// s'y substitue.
+// Deux choses ne peuvent être vérifiées que là : qu'une carte SD accepte un
+// fichier de plus de 4 Go, et que le trafic sort réellement par le tunnel.
+// Aucun test sur PC, aucun émulateur ne s'y substitue.
 //
 // Plutôt que de laisser ces zones d'ombre, l'application se teste elle-même :
 // chaque épreuve est courte, non destructrice, et nettoie derrière elle.
@@ -45,11 +44,6 @@ using StepFn = std::function<void(const std::string&)>;
 // Vérifie que la carte accepte un fichier dépassant la limite de FAT32, en
 // écrivant puis relisant au-delà de 4 Go. Le fichier est supprimé ensuite.
 Check check_large_file(const std::string& dir, const StepFn& step);
-
-// Réserve un emplacement ncm, y écrit, relit, puis le supprime. Rien n'est
-// enregistré : aucune trace ne subsiste, mais on sait si l'installation
-// pourrait écrire.
-Check check_install_services(const StepFn& step);
 
 // Interroge am.i.mullvad.net à travers le transport actif. C'est Mullvad qui
 // répond, pas nous : la réponse tranche la question du tunnel.

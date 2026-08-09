@@ -7,7 +7,6 @@
 #include <cstdio>
 #include <cstring>
 
-#include "install/installer.hpp"
 #include "util/bytes.hpp"
 #include "util/clock.hpp"
 #include "util/log.hpp"
@@ -58,6 +57,41 @@ std::string extension_of(const std::string& name) {
     return ext;
 }
 
+// Un fichier concatene - la parade de Horizon a la limite de 4 Go de FAT32 -
+// est un dossier dont les tranches s'appellent 00, 01... Le systeme le presente
+// d'ordinaire comme un fichier unique ; s'il apparait ici tel qu'il est
+// vraiment, il faut le recoller plutot que d'entrer dedans.
+bool looks_like_split_file(const std::string& dir, uint64_t& total_size) {
+    DIR* handle = ::opendir(dir.c_str());
+    if (!handle) return false;
+
+    bool only_slices = true;
+    bool any = false;
+    uint64_t sum = 0;
+
+    while (dirent* entry = ::readdir(handle)) {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..") continue;
+        any = true;
+
+        if (name.size() != 2 || !std::isdigit(static_cast<unsigned char>(name[0])) ||
+            !std::isdigit(static_cast<unsigned char>(name[1]))) {
+            only_slices = false;
+            break;
+        }
+        struct stat st{};
+        if (::stat((dir + "/" + name).c_str(), &st) == 0) sum += static_cast<uint64_t>(st.st_size);
+    }
+    ::closedir(handle);
+
+    if (!any || !only_slices) return false;
+    total_size = sum;
+    return true;
+}
+
+// Liste ce que les telechargements ont pose sur la carte. Aucune extension n'est
+// privilegiee : Torfoil ne sait pas ce qu'est un paquet, il ne connait que des
+// fichiers.
 void scan_directory(const std::string& dir, int depth, std::vector<LibraryEntry>& out) {
     if (depth > 3) return;
 
@@ -72,79 +106,23 @@ void scan_directory(const std::string& dir, int depth, std::vector<LibraryEntry>
         struct stat st{};
         if (::stat(full.c_str(), &st) != 0) continue;
 
-        const std::string ext = extension_of(name);
-        const bool installable_ext =
-            ext == "nsp" || ext == "nsz" || ext == "xci" || ext == "xcz";
-
-        if (S_ISDIR(st.st_mode)) {
-            // Sur une carte FAT32, un fichier de plus de 4 Go est stocké en
-            // « fichier concaténé » : un dossier découpé en tranches que le
-            // système présente normalement comme un fichier unique. Si jamais il
-            // apparaît ici comme un dossier, il ne faut surtout pas descendre
-            // dedans — c'est le jeu lui-même, pas un répertoire à explorer.
-            if (!installable_ext) scan_directory(full, depth + 1, out);
-            else {
-                LibraryEntry item;
-                item.path = full;
-                item.name = name;
-                // Sa taille est la somme de ses tranches.
-                item.size = 0;
-                struct stat pst{};
-                DIR* inner = ::opendir(full.c_str());
-                if (inner) {
-                    while (dirent* piece = ::readdir(inner)) {
-                        const std::string pname = piece->d_name;
-                        if (pname == "." || pname == "..") continue;
-                        if (::stat((full + "/" + pname).c_str(), &pst) == 0) {
-                            item.size += static_cast<uint64_t>(pst.st_size);
-                        }
-                    }
-                    ::closedir(inner);
-                }
-                item.kind = ext;
-                for (char& c : item.kind) {
-                    c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-                }
-                out.push_back(std::move(item));
-            }
-            continue;
-        }
-
-        if (!installable_ext) continue;
-
         LibraryEntry item;
         item.path = full;
         item.name = name;
-        item.size = static_cast<uint64_t>(st.st_size);
-        item.kind = ext;
+        item.kind = extension_of(name);
         for (char& c : item.kind) {
             c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
         }
 
-        // On regarde les premiers octets tout de suite. Un torrent télécharge ses
-        // pièces dans le désordre : un fichier peut peser sa taille finale sans
-        // que son en-tête soit arrivé. Sans cette lecture, la bibliothèque
-        // l'annonce installable, et l'installation échoue en disant « ce n'est
-        // pas un NSP » — ce qui accuse le fichier au lieu de dire qu'il manque
-        // encore des morceaux.
-        if (ext == "nsp" || ext == "xci") {
-            item.installable = false;
-            item.status = "en-tête illisible — téléchargement incomplet ?";
-
-            if (std::FILE* probe = std::fopen(full.c_str(), "rb")) {
-                uint8_t head[0x104] = {0};
-                const size_t got = std::fread(head, 1, sizeof(head), probe);
-                std::fclose(probe);
-
-                if (ext == "nsp" && got >= 4 && std::memcmp(head, "PFS0", 4) == 0) {
-                    item.installable = true;
-                    item.status.clear();
-                } else if (ext == "xci" && got >= 0x104 &&
-                           std::memcmp(head + 0x100, "HEAD", 4) == 0) {
-                    item.installable = true;
-                    item.status.clear();
-                }
+        if (S_ISDIR(st.st_mode)) {
+            uint64_t split_size = 0;
+            if (!looks_like_split_file(full, split_size)) {
+                scan_directory(full, depth + 1, out);
+                continue;
             }
+            item.size = split_size;
+        } else {
+            item.size = static_cast<uint64_t>(st.st_size);
         }
 
         out.push_back(std::move(item));
@@ -203,13 +181,6 @@ bool App::init(std::string* err) {
 }
 
 void App::shutdown() {
-    // On ne quitte jamais en laissant une écriture ncm en vol.
-    if (install_job_) {
-        install_job_->cancel.store(true);
-        if (install_job_->worker.joinable()) install_job_->worker.join();
-        install_job_.reset();
-    }
-
     if (diag_thread_.joinable()) diag_thread_.join();
 
     if (sleep_disabled_) appletSetAutoSleepDisabled(false);
@@ -252,10 +223,11 @@ void App::refresh_library() {
     library_.clear();
     scan_directory(kDownloadDir, 0, library_);
 
-    // Un fichier en cours de téléchargement existe déjà sur la carte, à sa
-    // taille finale ou presque. Sans ce marquage il apparaît comme installable,
-    // et l'installation d'un paquet incomplet échoue de façon incompréhensible
-    // — ou pire, aboutit sur une tuile morte.
+    // Un fichier en cours de telechargement existe deja sur la carte, souvent a
+    // sa taille finale : les pieces arrivent dans le desordre et l'espace est
+    // reserve d'avance. Sa taille ne dit donc rien de son etat, et rien ne
+    // distingue a l'oeil un fichier complet d'un fichier plein de trous. Seul le
+    // moteur le sait - on le lui demande.
     for (const bt::TorrentStatus& t : torrents_) {
         const bool done = t.state == bt::TorrentState::Completed ||
                           t.state == bt::TorrentState::Seeding;
@@ -263,25 +235,13 @@ void App::refresh_library() {
 
         for (LibraryEntry& item : library_) {
             if (item.path.compare(0, t.save_path.size(), t.save_path) != 0) continue;
-            item.installable = false;
-            item.status = "en cours — " + std::to_string(static_cast<int>(t.progress * 100)) + "%";
-        }
-    }
-
-    for (LibraryEntry& item : library_) {
-        if (!item.installable) continue;
-        if (item.kind == "NSZ" || item.kind == "XCZ") {
-            item.installable = false;
-            item.status = "compressé — décompresser d'abord";
+            item.ready = false;
+            item.status = "en cours - " + std::to_string(static_cast<int>(t.progress * 100)) + "%";
         }
     }
 
     std::sort(library_.begin(), library_.end(),
-              [](const LibraryEntry& a, const LibraryEntry& b) {
-                  // Les installables d'abord : c'est ce qu'on vient chercher.
-                  if (a.installable != b.installable) return a.installable;
-                  return a.name < b.name;
-              });
+              [](const LibraryEntry& a, const LibraryEntry& b) { return a.name < b.name; });
     last_library_scan_ms_ = util::now_ms();
 }
 
@@ -356,198 +316,9 @@ void App::import_magnets_file() {
     }
 }
 
-// Rejoue toute la chaîne d'installation sans écrire dans la mémoire système, et
-// recalcule l'empreinte SHA-256 de chaque contenu. Sert à répondre à la seule
-// question qui compte quand une installation rate : est-ce le paquet, ou est-ce
-// l'installateur ?
-void App::verify_selected() {
-    if (library_.empty()) return;
-    if (install_job_ && install_job_->running.load()) {
-        toast("Une opération est déjà en cours", true);
-        return;
-    }
-
-    const LibraryEntry& item = library_[static_cast<size_t>(selection())];
-    if (item.kind == "NSZ" || item.kind == "XCZ") {
-        toast("Format compressé : rien à vérifier avant décompression", true);
-        return;
-    }
-
-    std::string keys_err;
-    if (!install::keys_available(&keys_err)) {
-        toast(keys_err, true);
-        return;
-    }
-
-    install_job_ = std::make_unique<InstallJob>();
-    install_job_->running.store(true);
-    install_job_->source_name = item.name;
-    install_job_->verify_only = true;
-    {
-        std::lock_guard<std::mutex> lock(install_job_->mutex);
-        install_job_->step = "Lecture du paquet…";
-    }
-
-    const std::string path = item.path;
-    InstallJob* job = install_job_.get();
-
-    job->worker = std::thread([job, path] {
-        const install::Outcome outcome =
-            install::verify_package(path, /*deep=*/true, [job](const install::Progress& p) {
-                job->done.store(p.done);
-                job->total.store(p.total);
-                {
-                    std::lock_guard<std::mutex> lock(job->mutex);
-                    job->step = p.step;
-                }
-                return !job->cancel.load();
-            });
-
-        util::log_line(std::string("vérification ") + (outcome.ok ? "OK" : "ÉCHEC") + " : " +
-                       outcome.message);
-
-        std::lock_guard<std::mutex> lock(job->mutex);
-        job->result = outcome.message;
-        job->ok = outcome.ok;
-        job->finished = true;
-        job->running.store(false);
-    });
-}
-
-void App::install_selected() {
-    if (library_.empty()) return;
-    if (install_job_ && install_job_->running.load()) {
-        toast("Une installation est déjà en cours", true);
-        return;
-    }
-
-    const LibraryEntry& item = library_[static_cast<size_t>(selection())];
-
-    if (!item.installable) {
-        toast(item.status.empty() ? "Ce fichier n'est pas installable" : item.status, true);
-        return;
-    }
-
-    std::string keys_err;
-    if (!install::keys_available(&keys_err)) {
-        toast(keys_err, true);
-        return;
-    }
-
-    install_job_ = std::make_unique<InstallJob>();
-    install_job_->running.store(true);
-    install_job_->source_name = item.name;
-    {
-        std::lock_guard<std::mutex> lock(install_job_->mutex);
-        install_job_->step = "Lecture du paquet…";
-    }
-
-    const std::string path = item.path;
-    InstallJob* job = install_job_.get();
-
-    job->worker = std::thread([job, path] {
-        const install::Outcome outcome = install::install_package(
-            path, install::Target::Sd, [job](const install::Progress& p) {
-                job->done.store(p.done);
-                job->total.store(p.total);
-                {
-                    std::lock_guard<std::mutex> lock(job->mutex);
-                    job->step = p.step;
-                }
-                return !job->cancel.load();
-            });
-
-        util::log_line(std::string("installation ") + (outcome.ok ? "réussie" : "ÉCHOUÉE") +
-                       " : " + outcome.message);
-
-        std::lock_guard<std::mutex> lock(job->mutex);
-        job->result = outcome.message;
-        job->ok = outcome.ok;
-        job->finished = true;
-        job->running.store(false);
-    });
-}
-
-void App::poll_install_job() {
-    if (!install_job_) return;
-    if (install_job_->running.load()) return;
-
-    bool finished = false;
-    bool ok = false;
-    std::string message;
-    {
-        std::lock_guard<std::mutex> lock(install_job_->mutex);
-        finished = install_job_->finished;
-        ok = install_job_->ok;
-        message = install_job_->result;
-    }
-    if (!finished) return;
-
-    if (install_job_->worker.joinable()) install_job_->worker.join();
-    install_job_.reset();
-
-    toast(message.empty() ? "Installation terminée" : message, !ok);
-}
-
-// Bandeau discret en bas de l'écran plutôt qu'une fenêtre modale : on doit
-// pouvoir consulter ses torrents ou le VPN pendant qu'un jeu s'installe, comme
-// on le ferait pendant un téléchargement.
-void App::draw_install_overlay() {
-    if (!install_job_ || !install_job_->running.load()) return;
-
-    const int h = 74;
-    const int y = kContentBottom - h - 8;
-    const int x = kMargin;
-    const int w = Renderer::kWidth - 2 * kMargin;
-
-    render_.rounded_rect(x, y, w, h, 12, palette::kSurfaceAlt);
-
-    std::string step;
-    {
-        std::lock_guard<std::mutex> lock(install_job_->mutex);
-        step = install_job_->step;
-    }
-
-    const uint64_t done = install_job_->done.load();
-    const uint64_t total = install_job_->total.load();
-    const float ratio = total > 0 ? static_cast<float>(static_cast<double>(done) /
-                                                       static_cast<double>(total))
-                                  : 0.0f;
-
-    const std::string title =
-        (install_job_->verify_only ? "Vérification · " : "Installation · ") +
-        install_job_->source_name;
-    render_.text_clipped(FontSize::Small, title, x + 18, y + 10, w - 200, palette::kText);
-
-    char detail[160];
-    std::snprintf(detail, sizeof(detail), "%s  —  %s / %s  (%.0f %%)   ·   B annuler",
-                  step.c_str(), util::human_size(done).c_str(), util::human_size(total).c_str(),
-                  ratio * 100.0f);
-    render_.text_clipped(FontSize::Small, detail, x + 18, y + 34, w - 36, palette::kTextDim);
-
-    render_.progress_bar(x + 18, y + 58, w - 36, 8, ratio, palette::kAccent);
-}
-
 void App::handle_input(uint64_t now_ms) {
     padUpdate(&pad_);
     const u64 down = padGetButtonsDown(&pad_);
-
-    // L'installation tourne en fond, comme un téléchargement : rien ne justifie
-    // d'immobiliser l'application pendant plusieurs minutes. On garde seulement
-    // deux garde-fous — pas de seconde installation en parallèle (contrôlé à
-    // l'entrée), et pas de sortie qui laisserait une écriture ncm en vol.
-    const bool installing = install_job_ && install_job_->running.load();
-
-    if (installing && (down & HidNpadButton_B)) {
-        install_job_->cancel.store(true);
-        toast("Annulation de l'installation…");
-        return;
-    }
-
-    if (installing && (down & HidNpadButton_Plus)) {
-        toast("Installation en cours — B pour l'annuler avant de quitter", true);
-        return;
-    }
 
     if (down & HidNpadButton_Plus) {
         running_ = false;
@@ -607,8 +378,6 @@ void App::handle_input(uint64_t now_ms) {
             break;
 
         case Tab::Library:
-            if (down & HidNpadButton_A) install_selected();
-            if (down & HidNpadButton_Y) verify_selected();
             if (down & HidNpadButton_X) {
                 refresh_library();
                 toast("Bibliothèque relue");
@@ -821,7 +590,7 @@ void App::draw_torrents() {
 void App::draw_library() {
     if (library_.empty()) {
         draw_empty("Bibliothèque vide",
-                   "Les .nsp / .xci téléchargés apparaîtront ici — X pour relire");
+                   "Les fichiers téléchargés apparaîtront ici — X pour relire");
         return;
     }
 
@@ -838,22 +607,24 @@ void App::draw_library() {
         render_.rounded_rect(kMargin, y, Renderer::kWidth - 2 * kMargin, row_h, 12,
                              active ? palette::kSelected : palette::kSurface);
 
-        // Étiquette de type à gauche.
-        const int badge_w = render_.text_width(FontSize::Small, item.kind) + 22;
-        render_.rounded_rect(kMargin + 16, y + 20, badge_w, 28, 8, palette::kAccentDim);
-        render_.text(FontSize::Small, item.kind, kMargin + 27, y + 23, palette::kText);
+        // Étiquette de type à gauche. Un fichier sans extension n'en reçoit pas.
+        int badge_w = 0;
+        if (!item.kind.empty()) {
+            badge_w = render_.text_width(FontSize::Small, item.kind) + 22;
+            render_.rounded_rect(kMargin + 16, y + 20, badge_w, 28, 8, palette::kAccentDim);
+            render_.text(FontSize::Small, item.kind, kMargin + 27, y + 23, palette::kText);
+            badge_w += 16;
+        }
 
-        // Un fichier non installable se voit au premier coup d'œil : le nom est
-        // grisé et la raison remplace la taille, qui ne veut rien dire tant que
-        // le téléchargement n'est pas fini.
-        render_.text_clipped(FontSize::Body, item.name, kMargin + 16 + badge_w + 16, y + 8,
+        // Un fichier encore en cours se voit au premier coup d'œil : le nom est
+        // grisé et l'avancement remplace la taille, qui ne veut rien dire tant
+        // que le téléchargement n'est pas fini.
+        render_.text_clipped(FontSize::Body, item.name, kMargin + 16 + badge_w, y + 8,
                              Renderer::kWidth - 2 * kMargin - badge_w - 220,
-                             item.installable ? palette::kText : palette::kTextDim);
+                             item.ready ? palette::kText : palette::kTextDim);
 
-        const std::string detail =
-            item.installable ? util::human_size(item.size)
-                             : (item.status.empty() ? "non installable" : item.status);
-        render_.text(FontSize::Small, detail, kMargin + 16 + badge_w + 16, y + 38,
+        const std::string detail = item.ready ? util::human_size(item.size) : item.status;
+        render_.text(FontSize::Small, detail, kMargin + 16 + badge_w, y + 38,
                      palette::kTextDim);
 
         y += row_h + 8;
@@ -980,9 +751,8 @@ void App::draw_settings() {
 
     if (diag_report_.checks.empty()) {
         render_.text_clipped(FontSize::Small,
-                             "Y — éprouve la carte au-delà de 4 Go, l'écriture par les services "
-                             "d'installation, et la sortie réelle du trafic. Rien n'est installé, "
-                             "rien n'est conservé.",
+                             "Y — éprouve la carte au-delà de 4 Go et la sortie réelle du "
+                             "trafic. Rien n'est conservé.",
                              x, y, Renderer::kWidth - 2 * kMargin, palette::kTextDim);
         return;
     }
@@ -1057,9 +827,7 @@ void App::draw(uint64_t now_ms) {
             break;
         case Tab::Library:
             draw_library();
-            draw_hints({{"A", "Installer"},
-                        {"Y", "Vérifier le paquet"},
-                        {"X", "Relire"},
+            draw_hints({{"X", "Relire"},
                         {"L/R", "Onglet"},
                         {"+", "Quitter"}});
             break;
@@ -1081,7 +849,6 @@ void App::draw(uint64_t now_ms) {
             break;
     }
 
-    draw_install_overlay();
     draw_toast(now_ms);
     render_.end_frame();
 }
@@ -1105,7 +872,6 @@ void App::run() {
             sleep_disabled_ = busy;
         }
 
-        poll_install_job();
         vpn_.update(session_);
 
         // Relire la bibliothèque parcourt récursivement la carte : c'est lent,
