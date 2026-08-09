@@ -20,3 +20,8 @@ downloads/
 
 # Notes de reprise locales, jamais publiees
 HANDOFF.md
+
+# Bac à sable de la version PC : fausse carte SD et captures d écran
+sdmc/
+sdmc:/
+host-shots/
