@@ -66,11 +66,20 @@ std::string SoftAp::wifi_qr_payload() const {
 
 #ifndef __SWITCH__
 
-// Sur PC il n'y a pas de lp2p. Le reste du module (page servie, analyse des
-// requêtes, code QR) se teste sans lui.
+// Sur PC il n'y a pas de lp2p, et rien à créer : la machine est déjà sur un
+// réseau. On fait donc semblant d'avoir levé un point d'accès, sans en lever
+// aucun, et on laisse l'adresse à zéro pour que le serveur annonce celle de la
+// machine. Tout le reste du chemin devient éprouvable depuis un vrai téléphone
+// ou un navigateur : les deux codes QR, la page, l'envoi, les accusés de
+// réception. Seul le point d'accès lui-même reste non vérifié — c'est
+// précisément ce qu'aucune machine de développement ne peut trancher.
 bool SoftAp::start(std::string* err) {
-    if (err) *err = "point d'accès disponible uniquement sur console";
-    return false;
+    (void)err;
+    ssid_ = "torfoil-" + random_string(4);
+    passphrase_ = random_string(10);
+    address_ = 0;
+    running_ = true;
+    return true;
 }
 
 void SoftAp::stop() {

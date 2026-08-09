@@ -674,19 +674,19 @@ void App::draw_phone() {
     const int cx = Renderer::kWidth / 2;
 
     if (phone_.step() == Phone::Step::Off) {
-        render_.text_centered(FontSize::Title, "Import depuis un telephone", cx,
+        render_.text_centered(FontSize::Title, "Import depuis un téléphone", cx,
                               kContentTop + 60, palette::kText);
         render_.text_centered(FontSize::Body,
-                              "La console cree son propre reseau Wi-Fi et affiche un code QR.",
+                              "La console crée son propre réseau Wi-Fi et affiche un code QR.",
                               cx, kContentTop + 120, palette::kTextDim);
         render_.text_centered(FontSize::Body,
-                              "Le telephone le rejoint, ouvre une page, et y depose ses liens.",
+                              "Le téléphone le rejoint, ouvre une page, et y dépose ses liens.",
                               cx, kContentTop + 154, palette::kTextDim);
         render_.text_centered(FontSize::Body,
                               "Pendant ce temps la console n'a plus Internet : les",
                               cx, kContentTop + 210, palette::kWarn);
         render_.text_centered(FontSize::Body,
-                              "telechargements reprennent des que le point d'acces est referme.",
+                              "téléchargements reprennent dès que le point d'accès est refermé.",
                               cx, kContentTop + 244, palette::kWarn);
         render_.text_centered(FontSize::Body, "A pour ouvrir", cx, kContentTop + 300,
                               palette::kAccent);
@@ -694,7 +694,7 @@ void App::draw_phone() {
     }
 
     if (phone_.step() == Phone::Step::Failed) {
-        render_.text_centered(FontSize::Title, "Le point d'acces n'a pas demarre", cx,
+        render_.text_centered(FontSize::Title, "Le point d'accès n'a pas démarré", cx,
                               kContentTop + 100, palette::kError);
         render_.text_clipped(FontSize::Body, phone_.error(), kMargin, kContentTop + 160,
                              Renderer::kWidth - 2 * kMargin, palette::kTextDim);
@@ -703,11 +703,11 @@ void App::draw_phone() {
 
     const bool joining = phone_.step() == Phone::Step::JoinWifi;
     render_.text_centered(FontSize::Title,
-                          joining ? "1. Rejoindre le reseau de la console"
+                          joining ? "1. Rejoindre le réseau de la console"
                                   : "2. Ouvrir la page",
                           cx, kContentTop + 20, palette::kText);
     render_.text_centered(FontSize::Small,
-                          joining ? "Visez ce code avec l'appareil photo du telephone"
+                          joining ? "Visez ce code avec l'appareil photo du téléphone"
                                   : "Visez ce code : la page s'ouvre dans le navigateur",
                           cx, kContentTop + 62, palette::kTextDim);
 
@@ -735,19 +735,19 @@ void App::draw_phone() {
         // refuse de lire laisse sinon l'utilisateur sans recours.
         int ty = oy + side + 14;
         if (joining) {
-            render_.text_centered(FontSize::Body, "Reseau : " + phone_.ap().ssid(), cx, ty,
+            render_.text_centered(FontSize::Body, "Réseau : " + phone_.ap().ssid(), cx, ty,
                                   palette::kText);
             render_.text_centered(FontSize::Body, "Mot de passe : " + phone_.ap().passphrase(), cx,
                                   ty + 30, palette::kText);
             render_.text_centered(FontSize::Small,
-                                  "Une fois le telephone connecte, appuyez sur Y", cx, ty + 64,
+                                  "Une fois le téléphone connecté, appuyez sur Y", cx, ty + 64,
                                   palette::kAccent);
         } else {
             render_.text_centered(FontSize::Body, phone_.url(), cx, ty, palette::kText);
             const uint32_t got = phone_.imported();
             render_.text_centered(FontSize::Small,
                                   got == 0 ? "En attente d'un envoi"
-                                           : std::to_string(got) + " torrent(s) recu(s)",
+                                           : std::to_string(got) + " torrent(s) reçu(s)",
                                   cx, ty + 32, got == 0 ? palette::kTextDim : palette::kSuccess);
         }
     }

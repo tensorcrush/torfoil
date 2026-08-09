@@ -38,6 +38,14 @@ bool Renderer::init(std::string* err) {
     if (!window_) return fail("SDL_CreateWindow");
 
     renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!renderer_) {
+        // Repli logiciel. Sur console il ne devrait jamais servir, mais un
+        // refus du moteur accéléré rendrait l'application impossible à démarrer
+        // pour une raison purement graphique, alors qu'elle passe l'essentiel
+        // de son temps à télécharger. Sur PC, où l'application tourne sans
+        // affichage pour les essais scriptés, c'est le seul moteur disponible.
+        renderer_ = SDL_CreateRenderer(window_, -1, SDL_RENDERER_SOFTWARE);
+    }
     if (!renderer_) return fail("SDL_CreateRenderer");
 
     SDL_SetRenderDrawBlendMode(renderer_, SDL_BLENDMODE_BLEND);

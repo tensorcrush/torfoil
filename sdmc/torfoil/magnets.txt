@@ -1,0 +1,2 @@
+# Un lien magnet par ligne. Dans Torfoil, onglet Torrents, ZL pour importer.
+# Les liens acceptés sont retirés d'ici automatiquement.

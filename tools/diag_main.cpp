@@ -13,6 +13,7 @@
 #include <string>
 
 #include "bt/session.hpp"
+#include "diag/lp2p_probe.hpp"
 #include "diag/selftest.hpp"
 #include "util/log.hpp"
 
@@ -60,6 +61,16 @@ int main(int argc, char* argv[]) {
     line("socket        : %s (0x%08x)", R_SUCCEEDED(sock_rc) ? "ok" : "ECHEC", sock_rc);
     util::log_fmt("socket 0x%08x", sock_rc);
 
+    line("");
+
+    // Point d'accès Wi-Fi : la matrice d'essais. Elle passe en premier parce
+    // qu'elle est la question ouverte du moment, et parce qu'elle ne dépend ni
+    // de la carte ni du réseau.
+    line("[1mPoint d'acces (lp2p)[0m");
+    for (const diag::Lp2pProbeStep& step : diag::probe_lp2p().steps) {
+        line("  %s%-26s[0m %s", step.ok ? "[32m" : "[31m", step.label.c_str(),
+             step.detail.c_str());
+    }
     line("");
 
     const std::string dir = "sdmc:/torfoil/downloads";
