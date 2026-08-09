@@ -137,8 +137,11 @@ bool SoftAp::start(std::string* err) {
     rc = lp2pCreateGroup(&info);
     if (R_FAILED(rc)) {
         if (err) {
+            // Ne pas suggérer de cause tant qu'on n'en connaît aucune : la
+            // première version disait « Wi-Fi coupé ? », ce qui envoyait
+            // vérifier une chose qui allait très bien.
             *err = "création du réseau refusée [" + result_code(rc) +
-                   "] — Wi-Fi coupé, ou mode avion ?";
+                   "] — lancer torfoil-diag.nro pour savoir pourquoi";
         }
         stop();
         return false;
