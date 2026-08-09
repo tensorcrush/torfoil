@@ -12,8 +12,13 @@ file is on the SD card.
 To install content you are legally entitled to (your own dumps, homebrew), use a
 separate title manager such as [DBI](https://github.com/rashevskyv/dbi).
 
-> The code and the in-app interface are in French. Translation contributions are
-> welcome.
+The interface speaks **German, English, Spanish, French, Japanese, Russian and
+Chinese**. The first launch asks which one; it can be changed at any time from
+the first row of Settings. The non-Latin translations are best effort and have
+not been proofread by native speakers, so corrections are welcome.
+
+> Code comments and log messages remain in French. They go into `torfoil.log`
+> and serve bug reports rather than daily use.
 
 ## Setup
 
@@ -27,8 +32,9 @@ when the main application refuses to start.
 |---|---|
 | Torrents | **X** paste a magnet · **ZL** import `magnets.txt` · **Y** pause/resume · **B** skip verification · **ZR** remove |
 | Library | **X** rescan folder. A read-only view of what the downloads have put on the card |
+| Phone | **A** open/close the access point · **Y** once the phone has joined |
 | VPN | **X** Mullvad account (16 digits) · **A** connect/disconnect · **Y** country |
-| Settings | **↑↓** select · **A** toggle · **Y** self-test |
+| Settings | **↑↓** select · **A** toggle · **←→** change value · **Y** self-test |
 
 Active torrents **resume automatically on startup**: each magnet link is kept in
 `sdmc:/torfoil/downloads/.<hash>.magnet`. Without this, closing the application
@@ -50,9 +56,31 @@ gets enabled by accident, then blamed for making the app slow.
 
 Downloads land in `sdmc:/torfoil/downloads`.
 
+### Importing from a phone
+
+The console raises **its own Wi-Fi network** and shows a QR code, the same way
+the Album's "send to smartphone" does. Point the phone camera at it and the
+phone joins; a second QR code carries the address of a page served by the
+console, where you paste magnet links or upload `.torrent` files. Nothing to
+type, nothing to install, and no router to convince: this works at a friend's
+place, in a hotel, and on networks that isolate their clients from each other.
+
+The service behind it is `lp2p`, the one the Album itself uses. Not `ldn`: that
+is console-to-console local play and speaks Nintendo frames no phone will ever
+understand. `lp2p` creates a real infrastructure-mode access point with DHCP,
+and since firmware 11.0.0 it accepts standard WPA2-PSK.
+
+Two things worth knowing. The console has one radio, so while the access point
+is up it has no internet and downloads stop; that is true of the Album too, and
+the tab says so before you open it. And `member_count_max` must be **1** in
+WPA2 mode: at four, `lp2pCreateGroup` refuses the network with 2231-0261, an
+error nobody has documented. The probe in `torfoil-diag.nro` found it by running
+the whole matrix and changing one variable at a time.
+
 ### Adding magnet links
 
-Typing a magnet on a virtual keyboard is painful, so there are two ways in.
+Typing a magnet on a virtual keyboard is painful, so there are three other ways
+in: the phone import above, and the two below.
 
 - **X** opens the system keyboard. Fine for a short link, or if you can paste it
   from the console browser.
@@ -116,8 +144,10 @@ The core depends on neither libnx nor the hardware, and builds with g++:
 bash tests/run.sh
 ```
 
-118 assertions under AddressSanitizer and UBSan: SHA-1, bencode, magnet, picker,
-storage, multi-file boundaries, plus the crypto checked
+157 assertions under AddressSanitizer and UBSan: SHA-1, bencode, magnet, picker,
+storage, multi-file boundaries, the QR encoder against published Reed-Solomon
+vectors, the HTTP and multipart parsers, the seven translation columns, plus the
+crypto checked
 against the **RFC 7693** (BLAKE2s), **RFC 8439** (ChaCha20-Poly1305) and
 **RFC 7748** (X25519) vectors, plus a full WireGuard handshake between two
 instances, replay and tampering included.
@@ -200,6 +230,26 @@ sources into the Linux filesystem before compiling, because under WSL building
 directly from `/mnt/c` is very slow. Set `TORFOIL_SRC` to override the source
 location.
 
+### Running it on a PC
+
+```bash
+bash host/run.sh --script "R,R,shot,quit"
+```
+
+This builds and runs **the real program** (same engine, same UI, same source
+files) on a development machine. It is not a mock: `host/include/switch.h`
+fakes the handful of Horizon calls the program makes and sits first on the
+include path, so no application file needs an `#ifdef`. The sockets were already
+plain POSIX and the display was already plain SDL2.
+
+Without `--script` it opens a window and the keyboard acts as the pad. With one,
+no display is needed at all: the actions are played in order and `shot` saves the
+screen to `host-shots/`, which is how the screens in this project get checked
+without a console in hand. Not testable there: the lp2p access point,
+concatenation files, and the console socket pool sizing.
+
+Needs `libsdl2-dev libsdl2-ttf-dev libmbedtls-dev fonts-dejavu-core`.
+
 ## Known constraints
 
 - **Console sleeps → download stops.** `appletSetAutoSleepDisabled` is forced
@@ -229,7 +279,7 @@ location.
 
 | Component | Status |
 |---|---|
-| Crypto, bencode, magnet, picker, storage | 118 tests under ASan/UBSan |
+| Crypto, bencode, magnet, picker, storage, QR, HTTP, translations | 157 tests under ASan/UBSan |
 | Multi-file torrents, piece boundary mid-file | Proven: exact bytes on both sides |
 | Peer discovery (DHT) | Proven on PC: 489 peers, no tracker |
 | Full download | Proven on PC: 2.44 GB at 8.1 MB/s, SHA-1 verified |
@@ -241,6 +291,8 @@ location.
 | Files > 4 GB (FAT32) | Verified on console: a 23 GB and a 12.5 GB file written to a FAT32 card |
 | A >4 GB file on a real card | Not exercised here, **checkable via the self-test (Y)** |
 | Traffic actually leaving through the VPN | Not exercised here, **checkable via the self-test (Y)** |
+| Wi-Fi access point and the two QR codes | Verified on console: network created at 192.168.0.1, phone joined, page served, torrents received |
+| Interface in seven languages | Table verified by test; rendering verified on the PC build |
 
 Every build in the table above was run on real hardware, and each fix moved the
 number: 70 kB/s, then 200 kB/s over the VPN, then 800 kB/s without it, and
