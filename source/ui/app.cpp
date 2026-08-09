@@ -725,29 +725,22 @@ void App::draw_phone() {
                                   : "Visez ce code : la page s'ouvre dans le navigateur",
                           cx, kContentTop + 62, palette::kTextDim);
 
-    // Le code QR est dessine module par module. La marge blanche de quatre
-    // modules autour n'est pas facultative : sans elle, beaucoup de lecteurs ne
-    // trouvent tout simplement pas le motif.
+    // La zone de silence autour du motif est comprise dans le tracé : sans
+    // cette marge claire, beaucoup de lecteurs ne trouvent tout simplement pas
+    // les repères.
     const util::QrCode& qr = phone_.qr();
     if (qr.size > 0) {
         const int available = kContentBottom - (kContentTop + 100) - 90;
-        const int scale = std::max(2, available / (qr.size + 8));
-        const int side = (qr.size + 8) * scale;
+        int scale = available / (qr.size + 2 * Renderer::kQrQuietZone);
+        if (scale < 2) scale = 2;
+        const int side = Renderer::qr_extent(qr, scale);
         const int ox = cx - side / 2;
         const int oy = kContentTop + 100;
-
-        render_.rect(ox, oy, side, side, palette::kQrLight);
-        for (int y = 0; y < qr.size; ++y) {
-            for (int x = 0; x < qr.size; ++x) {
-                if (!qr.at(x, y)) continue;
-                render_.rect(ox + (x + 4) * scale, oy + (y + 4) * scale, scale, scale,
-                             palette::kQrDark);
-            }
-        }
+        render_.qr_code(qr, ox, oy, scale);
 
         // Le texte sous le code n'est pas un doublon : un appareil photo qui
         // refuse de lire laisse sinon l'utilisateur sans recours.
-        int ty = oy + side + 14;
+        const int ty = oy + side + 14;
         if (joining) {
             render_.text_centered(FontSize::Body, "Réseau : " + phone_.ap().ssid(), cx, ty,
                                   palette::kText);
@@ -830,90 +823,109 @@ void App::draw_vpn() {
         x, y, Renderer::kWidth - 2 * kMargin, palette::kTextDim);
 }
 
+// Deux colonnes, et c'est le correctif autant que la mise en forme. En une
+// seule colonne, le titre, l'état, les cinq bascules et l'auto-diagnostic
+// faisaient 620 pixels dans une zone qui en offre 534 : la section
+// d'auto-diagnostic était dessinée sous le bas de l'écran, donc invisible, et
+// on ne pouvait pas « descendre » puisque rien ne défilait.
 void App::draw_settings() {
-    const int x = kMargin;
-    int y = kContentTop + 30;
+    const int gutter = 40;
+    const int left = kMargin;
+    const int left_w = (Renderer::kWidth - 2 * kMargin - gutter) * 62 / 100;
+    const int right = left + left_w + gutter;
+    const int right_w = Renderer::kWidth - kMargin - right;
 
-    render_.text(FontSize::Title, "Réglages", x, y, palette::kText);
-    y += 56;
+    // ---- colonne de gauche : confidentialité ----
+    int y = kContentTop + 12;
+    render_.section_header("CONFIDENTIALITÉ", left, y, palette::kAccent);
+    y += 34;
 
-    auto row = [&](const std::string& key, const std::string& value) {
-        render_.text(FontSize::Body, key, x, y, palette::kTextDim);
-        render_.text(FontSize::Body, value, x + 320, y, palette::kText);
-        y += 40;
-    };
-
-    row("Transport réseau", session_.transport_name());
-    row("Torrents actifs", std::to_string(torrents_.size()));
-
-    y += 16;
-    render_.text(FontSize::Body, "Confidentialité", x, y, palette::kText);
-    render_.text(FontSize::Small, "A pour cocher · ↑↓ pour choisir", x + 320, y + 4,
-                 palette::kTextDim);
-    y += 40;
-
-    // Chaque case annonce son coût. Une option de sécurité qui ne dit pas ce
+    // Chaque bascule annonce son coût. Une option de sécurité qui ne dit pas ce
     // qu'elle enlève finit toujours par être activée sans le vouloir, puis
     // accusée de « ralentir l'application ».
     const std::vector<Toggle>& list = toggles();
+    constexpr int row_h = 66;
+    constexpr int switch_w = 54;
+    constexpr int switch_h = 28;
+
     for (size_t i = 0; i < list.size(); ++i) {
         const Toggle& t = list[i];
         const bool raw = settings_.*(t.field);
         const bool checked = t.inverted ? !raw : raw;
-        const bool active = static_cast<int>(i) == settings_cursor_;
+        const bool focused = static_cast<int>(i) == settings_cursor_;
 
-        if (active) {
-            render_.rounded_rect(x - 10, y - 6, Renderer::kWidth - 2 * kMargin + 20, 52, 10,
-                                 palette::kSelected);
-        }
+        // Seul le fond change avec le focus : rien ne bouge, donc l'écran n'a
+        // pas à être relu après chaque appui.
+        render_.rounded_rect(left, y, left_w, row_h - 8, 10,
+                             focused ? palette::kSelected : palette::kSurface);
 
-        render_.text(FontSize::Body, checked ? "[x]" : "[ ]", x, y,
-                     checked ? palette::kAccent : palette::kTextDim);
-        render_.text(FontSize::Body, t.label, x + 56, y,
-                     checked ? palette::kText : palette::kTextDim);
-        render_.text_clipped(FontSize::Small, t.effect, x + 56, y + 24,
-                             Renderer::kWidth - 2 * kMargin - 56, palette::kTextDim);
-        y += 52;
+        render_.text_clipped(FontSize::Body, t.label, left + 18, y + 6,
+                             left_w - 36 - switch_w - 18,
+                             checked ? palette::kText : palette::kTextDim);
+        render_.text_clipped(FontSize::Small, t.effect, left + 18, y + 32,
+                             left_w - 36 - switch_w - 18, palette::kTextDim);
+        render_.toggle_switch(left + left_w - 18 - switch_w, y + 14, switch_w, switch_h, checked,
+                              focused);
+        y += row_h;
     }
 
-    y += 12;
-    render_.text(FontSize::Body, "Auto-diagnostic", x, y, palette::kText);
-    y += 40;
+    // ---- colonne de droite : état, puis auto-diagnostic ----
+    int ry = kContentTop + 12;
+    render_.section_header("ÉTAT", right, ry, palette::kTextDim);
+    ry += 34;
+
+    auto info = [&](const std::string& key, const std::string& value) {
+        render_.text(FontSize::Small, key, right, ry, palette::kTextDim);
+        render_.text_clipped(FontSize::Small, value, right + 180, ry, right_w - 180,
+                             palette::kText);
+        ry += 28;
+    };
+    info("Transport", session_.transport_name());
+    info("Torrents actifs", std::to_string(torrents_.size()));
+    info("Point d\'accès", phone_.step() == Phone::Step::Off ? "fermé" : phone_.ap().ssid());
+
+    ry += 20;
+    render_.section_header("AUTO-DIAGNOSTIC", right, ry, palette::kAccent);
+    render_.key_badge(FontSize::Small, "Y", right + right_w - 34, ry, palette::kAccent);
+    ry += 36;
 
     if (diag_running_) {
-        render_.text(FontSize::Body, diag_step_, x, y, palette::kAccent);
+        render_.text_clipped(FontSize::Small, diag_step_, right, ry, right_w, palette::kAccent);
         return;
     }
 
     if (diag_report_.checks.empty()) {
-        render_.text_clipped(FontSize::Small,
-                             "Y — éprouve la carte au-delà de 4 Go et la sortie réelle du "
-                             "trafic. Rien n'est conservé.",
-                             x, y, Renderer::kWidth - 2 * kMargin, palette::kTextDim);
+        render_.text_clipped(FontSize::Small, "Éprouve la carte au-delà de 4 Go et la", right, ry,
+                             right_w, palette::kTextDim);
+        render_.text_clipped(FontSize::Small, "sortie réelle du trafic. Rien n\'est", right,
+                             ry + 24, right_w, palette::kTextDim);
+        render_.text_clipped(FontSize::Small, "conservé.", right, ry + 48, right_w,
+                             palette::kTextDim);
         return;
     }
 
     for (const diag::Check& c : diag_report_.checks) {
         // Plutôt tronquer que déborder : ce qui dépasse le bas de l'écran est
         // dessiné dans le vide, et emportait les résultats avec lui.
-        if (y + 70 > kContentBottom) break;
+        if (ry + 56 > kContentBottom) break;
 
         // Une épreuve non exécutée n'est pas un échec : la confondre enverrait
         // chercher un bug là où il n'y en a pas.
         const Color color = !c.ran ? palette::kWarn : (c.ok ? palette::kSuccess : palette::kError);
-        const char* label = !c.ran ? "IGNORÉ" : (c.ok ? "OK" : "ÉCHEC");
-        render_.text(FontSize::Body, label, x, y, color);
-        render_.text_clipped(FontSize::Body, c.name, x + 90, y,
-                             Renderer::kWidth - 2 * kMargin - 90, palette::kText);
-        y += 32;
-        render_.text_clipped(FontSize::Small, c.detail, x + 90, y,
-                             Renderer::kWidth - 2 * kMargin - 90, palette::kTextDim);
-        y += 38;
+        const std::string tag = !c.ran ? "IGNORÉ" : (c.ok ? "OK" : "ÉCHEC");
+
+        const int tag_w = render_.text_width(FontSize::Small, tag) + 16;
+        render_.rounded_rect(right, ry - 2, tag_w, 24, 6, palette::kSurfaceAlt);
+        render_.text(FontSize::Small, tag, right + 8, ry, color);
+        render_.text_clipped(FontSize::Small, c.name, right + tag_w + 12, ry,
+                             right_w - tag_w - 12, palette::kText);
+        ry += 26;
+        render_.text_clipped(FontSize::Small, c.detail, right + 12, ry, right_w - 12,
+                             palette::kTextDim);
+        ry += 32;
     }
 }
 
-// Lance l'auto-diagnostic sur son propre thread : la vérification VPN interroge
-// le réseau et bloquerait l'affichage plusieurs secondes.
 void App::run_selftest() {
     if (diag_running_) return;
     if (diag_thread_.joinable()) diag_thread_.join();

@@ -61,7 +61,11 @@ std::string SoftAp::wifi_qr_payload() const {
         }
         return out;
     };
-    return "WIFI:T:WPA;S:" + escape(ssid_) + ";P:" + escape(passphrase_) + ";;";
+    // « H:false » n'est pas décoratif : c'est le champ « réseau caché », et
+    // plusieurs lecteurs refusent de proposer la connexion quand il manque —
+    // ils se contentent d'ouvrir les réglages Wi-Fi, ce qui ressemble beaucoup
+    // à un code QR ignoré.
+    return "WIFI:T:WPA;S:" + escape(ssid_) + ";P:" + escape(passphrase_) + ";H:false;;";
 }
 
 #ifndef __SWITCH__
@@ -160,6 +164,23 @@ bool SoftAp::start(std::string* err) {
         return false;
     }
     running_ = true;
+
+    // Le nom demandé n'est pas forcément le nom diffusé : lp2p peut le
+    // transformer. Un code QR bâti sur le nom demandé désignerait alors un
+    // réseau qui n'existe pas, et le téléphone se contenterait d'ouvrir sa
+    // liste de réseaux — exactement le symptôme observé. On relit donc ce que
+    // le groupe annonce vraiment.
+    Lp2pGroupInfo created;
+    std::memset(&created, 0, sizeof(created));
+    if (R_SUCCEEDED(lp2pGetGroupInfo(&created))) {
+        created.service_name[sizeof(created.service_name) - 1] = '\0';
+        const std::string broadcast = created.service_name;
+        if (!broadcast.empty() && broadcast != ssid_) {
+            util::log_line("point d'accès : nom demandé « " + ssid_ + " », nom diffusé « " +
+                           broadcast + " »");
+            ssid_ = broadcast;
+        }
+    }
 
     // L'adresse ne vient pas de gethostid() ici : la console vient de changer
     // d'interface, et c'est lp2p qui sait laquelle elle s'est attribuée sur le

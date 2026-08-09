@@ -12,6 +12,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "util/qr.hpp"
+
 namespace ui {
 
 struct Color {
@@ -30,11 +32,6 @@ constexpr Color kTextDim{0x8a, 0x93, 0xa3, 0xff};
 constexpr Color kWarn{0xf2, 0xb1, 0x3c, 0xff};
 constexpr Color kError{0xe5, 0x5b, 0x5b, 0xff};
 constexpr Color kSuccess{0x63, 0xc9, 0x6a, 0xff};
-// Un code QR se lit par contraste. Le reprendre aux couleurs de l'interface
-// serait plus joli et beaucoup moins fiable : la norme suppose du sombre sur du
-// clair, et les lecteurs des téléphones y comptent.
-constexpr Color kQrLight{0xff, 0xff, 0xff, 0xff};
-constexpr Color kQrDark{0x00, 0x00, 0x00, 0xff};
 }  // namespace palette
 
 enum class FontSize { Small, Body, Title, Huge };
@@ -64,6 +61,31 @@ public:
     int line_height(FontSize size) const;
 
     void progress_bar(int x, int y, int w, int h, float ratio, const Color& fill_color);
+
+    // Interrupteur à glissière. Remplace le « [x] » d'origine : la position du
+    // curseur se lit d'un coup d'œil à travers la pièce, là où une croix entre
+    // crochets demande de la lire.
+    void toggle_switch(int x, int y, int w, int h, bool on, bool focused);
+
+    // Touche de manette dessinée comme une touche : libellé clair sur pastille
+    // sombre. Dans une barre d'aide, c'est ce qui sépare « ce sur quoi j'appuie »
+    // de « ce que ça fait ».
+    void key_badge(FontSize size, const std::string& label, int x, int y, const Color& tint);
+    int key_badge_width(FontSize size, const std::string& label);
+
+    // Cartouche de section : filet coloré puis titre en petites capitales.
+    void section_header(const std::string& title, int x, int y, const Color& accent);
+
+    // Code QR, zone de silence comprise. Un appareil photo a besoin de cette
+    // marge claire autour du motif : sans elle, il ne trouve pas les repères et
+    // le code paraît simplement « ne pas marcher ».
+    void qr_code(const util::QrCode& code, int x, int y, int scale);
+    // Côté total occupé, zone de silence comprise.
+    static int qr_extent(const util::QrCode& code, int scale) {
+        return code.size > 0 ? (code.size + 2 * kQrQuietZone) * scale : 0;
+    }
+
+    static constexpr int kQrQuietZone = 4;  // modules, imposé par la norme
 
     SDL_Renderer* raw() { return renderer_; }
 

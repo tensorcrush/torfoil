@@ -242,6 +242,82 @@ int Renderer::line_height(FontSize size) const {
     return TTF_FontHeight(font(size));
 }
 
+void Renderer::toggle_switch(int x, int y, int w, int h, bool on, bool focused) {
+    const int radius = h / 2;
+
+    // La glissière prend la couleur d'accent quand l'option est active. Éteinte,
+    // elle reste franchement sombre : deux états qui se distinguent de loin, sans
+    // avoir à lire quoi que ce soit.
+    const Color track = on ? palette::kAccentDim : palette::kSurfaceAlt;
+    rounded_rect(x, y, w, h, radius, track);
+
+    // Liseré sur la ligne survolée : le focus se voit sur la pièce elle-même,
+    // pas seulement sur le fond de la ligne.
+    if (focused) {
+        const Color edge = on ? palette::kAccent : palette::kTextDim;
+        line(x + radius, y, x + w - radius, y, edge);
+        line(x + radius, y + h - 1, x + w - radius, y + h - 1, edge);
+    }
+
+    const int inset = 3;
+    const int knob = h - 2 * inset;
+    const int knob_x = on ? x + w - inset - knob : x + inset;
+    rounded_rect(knob_x, y + inset, knob, knob, knob / 2,
+                 on ? palette::kAccent : palette::kTextDim);
+}
+
+int Renderer::key_badge_width(FontSize size, const std::string& label) {
+    // Un minimum carré : « A » et « ZR » doivent produire des pastilles de
+    // hauteurs égales et de largeurs cohérentes, sinon la barre d'aide ondule.
+    return std::max(28, text_width(size, label) + 18);
+}
+
+void Renderer::key_badge(FontSize size, const std::string& label, int x, int y,
+                         const Color& tint) {
+    const int w = key_badge_width(size, label);
+    const int h = line_height(size) + 6;
+    rounded_rect(x, y - 3, w, h, 7, palette::kSurfaceAlt);
+    text(size, label, x + (w - text_width(size, label)) / 2, y, tint);
+}
+
+void Renderer::section_header(const std::string& title, int x, int y, const Color& accent) {
+    rounded_rect(x, y + 4, 4, 18, 2, accent);
+    text(FontSize::Small, title, x + 16, y, palette::kTextDim);
+}
+
+void Renderer::qr_code(const util::QrCode& code, int x, int y, int scale) {
+    if (code.size <= 0 || scale <= 0) return;
+
+    const int extent = qr_extent(code, scale);
+    // Fond blanc franc, zone de silence comprise. Un code QR sur fond sombre ne
+    // se lit pas : les décodeurs attendent des modules sombres sur clair, et
+    // inverser les deux suffit à rendre l'affichage inutile.
+    rect(x, y, extent, extent, Color{0xff, 0xff, 0xff, 0xff});
+
+    const int origin_x = x + kQrQuietZone * scale;
+    const int origin_y = y + kQrQuietZone * scale;
+    const Color dark{0x0d, 0x11, 0x13, 0xff};
+    SDL_SetRenderDrawColor(renderer_, dark.r, dark.g, dark.b, dark.a);
+
+    // Les modules sombres consécutifs d'une ligne sont fusionnés en un seul
+    // rectangle : 1 681 appels de dessin par image pour un code de version 6,
+    // contre environ deux cents ainsi.
+    for (int my = 0; my < code.size; ++my) {
+        int run_start = -1;
+        for (int mx = 0; mx <= code.size; ++mx) {
+            const bool on = mx < code.size && code.at(mx, my);
+            if (on && run_start < 0) {
+                run_start = mx;
+            } else if (!on && run_start >= 0) {
+                const SDL_Rect r{origin_x + run_start * scale, origin_y + my * scale,
+                                 (mx - run_start) * scale, scale};
+                SDL_RenderFillRect(renderer_, &r);
+                run_start = -1;
+            }
+        }
+    }
+}
+
 void Renderer::progress_bar(int x, int y, int w, int h, float ratio, const Color& fill_color) {
     ratio = std::max(0.0f, std::min(1.0f, ratio));
     rounded_rect(x, y, w, h, h / 2, palette::kSurfaceAlt);
