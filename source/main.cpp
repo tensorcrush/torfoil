@@ -6,7 +6,7 @@
 #include <string>
 
 #ifndef APP_VERSION_STRING
-#define APP_VERSION_STRING "0.1.0"
+#define APP_VERSION_STRING "0.2.0"
 #endif
 
 #include "ui/app.hpp"

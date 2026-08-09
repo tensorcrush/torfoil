@@ -228,6 +228,13 @@ public:
     // Reprise : on fait confiance au fichier .torfoil s'il colle, sinon on
     // relit toute la carte SD (long mais sûr).
     void run_check() {
+        // Le drapeau « passer la vérification » est remis à zéro ICI, à
+        // l'entrée. Il était auparavant effacé seulement à la sortie de la
+        // relecture, si bien qu'un appui sur B en dehors de toute vérification
+        // restait armé et faisait sauter la prochaine — celle qui, elle,
+        // servait peut-être vraiment.
+        session_.skip_check_.store(false);
+
         if (storage_.recreated()) {
             // Un fichier a été recréé : le point de reprise décrirait des pièces
             // qui n'existent plus. Le garder ferait croire le torrent à moitié
@@ -286,6 +293,23 @@ public:
 
     const std::vector<std::string>& trackers() const { return meta_.trackers; }
 
+    // L'événement d'annonce n'est pas décoratif : « started » à chaque passage
+    // fait croire au tracker à un nouveau client toutes les demi-heures, et
+    // « completed » est ce qui alimente son compteur de sources complètes. On
+    // les émet donc chacun une fois, au bon moment.
+    AnnounceEvent next_event() {
+        if (!announce_started_) return AnnounceEvent::Started;
+        if (meta_complete_ && picker_.is_complete() && !completed_announced_) {
+            return AnnounceEvent::Completed;
+        }
+        return AnnounceEvent::None;
+    }
+
+    void note_event_sent(AnnounceEvent event) {
+        if (event == AnnounceEvent::Started) announce_started_ = true;
+        if (event == AnnounceEvent::Completed) completed_announced_ = true;
+    }
+
     AnnounceRequest make_request(const std::array<uint8_t, 20>& peer_id, AnnounceEvent event) const {
         AnnounceRequest req;
         req.info_hash = meta_.info_hash;
@@ -299,7 +323,7 @@ public:
         return req;
     }
 
-    void apply_announce(const AnnounceResult& result) {
+    void apply_announce(const AnnounceResult& result, uint64_t now_ms) {
         if (!result.ok) {
             // Un tracker mort sur cinq n'est pas un problème tant que le DHT
             // fournit des pairs. On ne le remonte que si on n'a rien d'autre,
@@ -310,6 +334,14 @@ public:
         message_.clear();
         seeders_ = std::max(seeders_, result.seeders);
         leechers_ = std::max(leechers_, result.leechers);
+
+        // Le tracker dit à quel rythme il veut être réinterrogé. L'ignorer et
+        // repasser toutes les demi-heures, c'est se faire bannir par ceux qui
+        // en demandent moins, et perdre des pairs chez ceux qui en demandent
+        // plus. La planification provisoire posée à l'émission (courte, pour
+        // pouvoir réessayer vite en cas d'échec) est ici remplacée par la vraie.
+        const uint32_t interval = std::max<uint32_t>(60, result.interval_s);
+        next_announce_ms_ = now_ms + static_cast<uint64_t>(interval) * 1000;
 
         add_peers(result.peers);
     }
@@ -354,6 +386,11 @@ public:
         s.leechers = leechers_;
         s.message = message_;
         s.save_path = dir_;
+        // Tant que le nom n'est pas connu (magnet sans métadonnées), rien sur
+        // la carte n'appartient encore à ce torrent : on laisse vide plutôt que
+        // de désigner le dossier commun, qui reviendrait à revendiquer les
+        // fichiers de tous les autres.
+        s.content_root = meta_.name.empty() ? std::string() : dir_ + "/" + meta_.name;
         s.primary_file = primary_file_;
 
         for (const auto& peer : peers_) {
@@ -810,6 +847,8 @@ private:
     uint32_t corrupt_pieces_ = 0;
     uint32_t announce_key_ = 0;
     uint64_t next_announce_ms_ = 0;
+    bool announce_started_ = false;
+    bool completed_announced_ = false;
     uint64_t last_resume_save_ms_ = 0;
 
     friend class Session;
@@ -926,6 +965,31 @@ std::string Session::magnet_for(const MetaInfo& meta) {
     return uri;
 }
 
+// Un torrent déjà là ne sera pas ajouté deux fois par le moteur — mais il
+// répondait quand même « ajouté », ce qui laissait croire à un import réussi
+// alors que rien n'avait bougé. On regarde donc les deux endroits où un torrent
+// peut exister : l'instantané publié, et la file de commandes pas encore lue.
+bool Session::has_torrent(const std::string& hash_hex) const {
+    {
+        std::lock_guard<std::mutex> lock(cmd_mutex_);
+        // La file est lue à l'envers : c'est le dernier ordre qui décide. Sans
+        // ça, retirer un torrent puis le rajouter aussitôt se heurtait à
+        // l'instantané, qui le montre encore pendant un quart de seconde — et
+        // l'ajout était refusé pour un torrent déjà en train de disparaître.
+        for (auto cmd = commands_.rbegin(); cmd != commands_.rend(); ++cmd) {
+            if (cmd->hash_hex != hash_hex) continue;
+            if (cmd->type == Command::Type::AddTorrent) return true;
+            if (cmd->type == Command::Type::Remove) return false;
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(status_mutex_);
+    for (const TorrentStatus& s : cached_status_) {
+        if (s.hash_hex == hash_hex) return true;
+    }
+    return false;
+}
+
 bool Session::add_magnet(const std::string& uri, std::string* err) {
     MagnetLink link;
     if (!parse_magnet(uri, link, err)) return false;
@@ -937,6 +1001,10 @@ bool Session::add_magnet(const std::string& uri, std::string* err) {
     meta.trackers = link.trackers;
 
     const std::string hash_hex = util::to_hex(link.info_hash);
+    if (has_torrent(hash_hex)) {
+        if (err) *err = "torrent déjà présent";
+        return false;
+    }
     // Conservé tout de suite : un torrent ajouté puis interrompu avant la fin
     // des métadonnées doit quand même revenir au prochain démarrage.
     remember_magnet(hash_hex, uri);
@@ -1003,6 +1071,11 @@ bool Session::add_torrent_file(const std::string& path, std::string* err) {
 
     MetaInfo meta;
     if (!parse_torrent(blob, meta, err)) return false;
+
+    if (has_torrent(util::to_hex(meta.info_hash))) {
+        if (err) *err = "torrent déjà présent";
+        return false;
+    }
 
     Command cmd;
     cmd.type = Command::Type::AddTorrent;
@@ -1190,6 +1263,8 @@ void Session::engine_loop() {
                 t->mark_announced(now, 300);
                 continue;
             }
+            const AnnounceEvent event = t->next_event();
+            bool sent_any = false;
             for (const std::string& url : urls) {
                 // Une annonce en http:// simple transporte l'info_hash en clair.
                 // Qui observe la ligne sait exactement ce qui est téléchargé.
@@ -1198,10 +1273,18 @@ void Session::engine_loop() {
                 AnnounceJob job;
                 job.hash_hex = t->hash_hex();
                 job.url = url;
-                job.request = t->make_request(peer_id_, AnnounceEvent::Started);
+                job.request = t->make_request(peer_id_, event);
                 queue_announce(std::move(job));
+                sent_any = true;
             }
-            t->mark_announced(now, 1800);
+            if (sent_any) t->note_event_sent(event);
+
+            // Planification provisoire, volontairement courte : elle ne sert
+            // qu'à ne pas harceler un tracker muet. Dès qu'une réponse arrive,
+            // c'est l'intervalle qu'il réclame qui s'applique. Poser 30 minutes
+            // ici comme avant, c'était punir une annonce ratée d'une demi-heure
+            // d'attente alors qu'un tracker peut redevenir joignable en une.
+            t->mark_announced(now, 300);
         }
 
         // Réponses de trackers
@@ -1212,7 +1295,7 @@ void Session::engine_loop() {
                 replies.swap(announce_replies_);
             }
             for (const AnnounceReply& reply : replies) {
-                if (Torrent* t = find(reply.hash_hex)) t->apply_announce(reply.result);
+                if (Torrent* t = find(reply.hash_hex)) t->apply_announce(reply.result, now);
             }
         }
 

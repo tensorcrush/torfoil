@@ -54,8 +54,12 @@ struct TorrentStatus {
     uint32_t leechers = 0;
     uint64_t eta_s = 0;
     std::string message;
-    std::string save_path;
-    std::string primary_file;  // plus gros fichier — cible de l'installeur
+    std::string save_path;  // dossier de téléchargement commun
+    // Chemin qui appartient VRAIMENT à ce torrent : le fichier lui-même s'il
+    // est seul, sinon son dossier. Distinct de save_path, qui est le même pour
+    // tout le monde et ne permet donc de reconnaître personne.
+    std::string content_root;
+    std::string primary_file;  // plus gros fichier du torrent
 };
 
 class Torrent;
@@ -86,6 +90,10 @@ public:
     // thread moteur.
     bool add_magnet(const std::string& uri, std::string* err = nullptr);
     bool add_torrent_file(const std::string& path, std::string* err = nullptr);
+
+    // Torrent déjà connu ? Sert à répondre « déjà présent » au lieu d'annoncer
+    // un ajout qui sera silencieusement ignoré par le moteur.
+    bool has_torrent(const std::string& hash_hex) const;
 
     // Reprend les torrents laissés en cours lors de la session précédente.
     // Renvoie combien ont été relancés.
@@ -172,7 +180,7 @@ private:
     Dht dht_;
     const net::Transport* dht_transport_ = nullptr;
 
-    std::mutex cmd_mutex_;
+    mutable std::mutex cmd_mutex_;
     std::vector<Command> commands_;
 
     mutable std::mutex status_mutex_;

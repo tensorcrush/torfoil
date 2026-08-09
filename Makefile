@@ -15,7 +15,7 @@ include $(DEVKITPRO)/libnx/switch_rules
 #---------------------------------------------------------------------------------
 APP_TITLE   := Torfoil
 APP_AUTHOR  := tensorcrush
-APP_VERSION := 0.1.0
+APP_VERSION := 0.2.0
 
 TARGET   := torfoil
 BUILD    := build
@@ -24,7 +24,13 @@ SOURCES  := source source/bt source/net source/net/wg source/util source/ui \
             third_party/lwip/src/core third_party/lwip/src/core/ipv4
 DATA     := data
 INCLUDES := include third_party/lwip/src/include
-ROMFS    := romfs
+
+# Pas de ROMFS, et c'est délibéré : l'application n'embarque aucune ressource
+# (la police vient de pl:u). Le laisser pointer vers un dossier absent faisait
+# échouer build_romfs après une compilation et une édition de liens pourtant
+# réussies — « Failed to open .../romfs! » tout à la fin, quand tout le reste
+# avait marché.
+ROMFS    :=
 
 #---------------------------------------------------------------------------------
 # Options de compilation

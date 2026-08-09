@@ -23,8 +23,6 @@ rsync -a --delete \
       "$SRC_WIN/" "$WORK/"
 
 cd "$WORK"
-mkdir -p source/bt source/net source/util source/ui include romfs
-[ -f romfs/.keep ] || echo "torfoil" > romfs/.keep
 
 if [ "${1:-}" = "clean" ]; then
     make clean

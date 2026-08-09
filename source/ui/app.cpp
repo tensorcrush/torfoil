@@ -228,13 +228,17 @@ void App::refresh_library() {
     // reserve d'avance. Sa taille ne dit donc rien de son etat, et rien ne
     // distingue a l'oeil un fichier complet d'un fichier plein de trous. Seul le
     // moteur le sait - on le lui demande.
+    //
+    // La comparaison porte sur content_root, pas sur save_path : save_path est
+    // le dossier de téléchargement, le même pour tout le monde. Un seul torrent
+    // inachevé faisait donc passer TOUTE la carte pour « en cours ».
     for (const bt::TorrentStatus& t : torrents_) {
         const bool done = t.state == bt::TorrentState::Completed ||
                           t.state == bt::TorrentState::Seeding;
-        if (done || t.save_path.empty()) continue;
+        if (done || t.content_root.empty()) continue;
 
         for (LibraryEntry& item : library_) {
-            if (item.path.compare(0, t.save_path.size(), t.save_path) != 0) continue;
+            if (item.path.compare(0, t.content_root.size(), t.content_root) != 0) continue;
             item.ready = false;
             item.status = "en cours - " + std::to_string(static_cast<int>(t.progress * 100)) + "%";
         }
@@ -506,6 +510,12 @@ void App::draw_hints(const std::vector<std::pair<std::string, std::string>>& hin
 
     int x = kMargin;
     for (const auto& [button, action] : hints) {
+        // Une aide qui déborde de l'écran est tronquée par le bord sans qu'on
+        // sache qu'il en manquait : on s'arrête proprement avant.
+        const int width = render_.text_width(FontSize::Small, button) + 8 +
+                          render_.text_width(FontSize::Small, action);
+        if (x + width > Renderer::kWidth - kMargin) break;
+
         render_.text(FontSize::Small, button, x, y + 15, palette::kAccent);
         x += render_.text_width(FontSize::Small, button) + 8;
         render_.text(FontSize::Small, action, x, y + 15, palette::kTextDim);
@@ -758,6 +768,10 @@ void App::draw_settings() {
     }
 
     for (const diag::Check& c : diag_report_.checks) {
+        // Plutôt tronquer que déborder : ce qui dépasse le bas de l'écran est
+        // dessiné dans le vide, et emportait les résultats avec lui.
+        if (y + 70 > kContentBottom) break;
+
         // Une épreuve non exécutée n'est pas un échec : la confondre enverrait
         // chercher un bug là où il n'y en a pas.
         const Color color = !c.ran ? palette::kWarn : (c.ok ? palette::kSuccess : palette::kError);
