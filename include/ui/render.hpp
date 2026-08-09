@@ -30,6 +30,11 @@ constexpr Color kTextDim{0x8a, 0x93, 0xa3, 0xff};
 constexpr Color kWarn{0xf2, 0xb1, 0x3c, 0xff};
 constexpr Color kError{0xe5, 0x5b, 0x5b, 0xff};
 constexpr Color kSuccess{0x63, 0xc9, 0x6a, 0xff};
+// Un code QR se lit par contraste. Le reprendre aux couleurs de l'interface
+// serait plus joli et beaucoup moins fiable : la norme suppose du sombre sur du
+// clair, et les lecteurs des téléphones y comptent.
+constexpr Color kQrLight{0xff, 0xff, 0xff, 0xff};
+constexpr Color kQrDark{0x00, 0x00, 0x00, 0xff};
 }  // namespace palette
 
 enum class FontSize { Small, Body, Title, Huge };

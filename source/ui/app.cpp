@@ -32,8 +32,9 @@ const char* tab_label(int index) {
     switch (index) {
         case 0: return "Torrents";
         case 1: return "Bibliothèque";
-        case 2: return "VPN";
-        case 3: return "Réglages";
+        case 2: return "Téléphone";
+        case 3: return "VPN";
+        case 4: return "Réglages";
     }
     return "?";
 }
@@ -181,6 +182,11 @@ bool App::init(std::string* err) {
 }
 
 void App::shutdown() {
+    // Avant tout le reste : tant que le point d'accès est levé, la console n'a
+    // pas d'accès à Internet. Le laisser derrière soi couperait le Wi-Fi du
+    // salon jusqu'au redémarrage suivant.
+    phone_.stop();
+
     if (diag_thread_.joinable()) diag_thread_.join();
 
     if (sleep_disabled_) appletSetAutoSleepDisabled(false);
@@ -385,6 +391,25 @@ void App::handle_input(uint64_t now_ms) {
             if (down & HidNpadButton_X) {
                 refresh_library();
                 toast("Bibliothèque relue");
+            }
+            break;
+
+        case Tab::Phone:
+            if (down & HidNpadButton_A) {
+                if (phone_.step() == Phone::Step::Off || phone_.step() == Phone::Step::Failed) {
+                    std::string err;
+                    if (phone_.start(session_, &err)) {
+                        toast("Point d'accès levé — Internet coupé le temps de l'import");
+                    } else {
+                        toast(err, true);
+                    }
+                } else {
+                    phone_.stop();
+                    toast("Point d'accès refermé");
+                }
+            }
+            if ((down & HidNpadButton_Y) && phone_.step() == Phone::Step::JoinWifi) {
+                phone_.confirm_joined();
             }
             break;
 
@@ -641,6 +666,93 @@ void App::draw_library() {
     }
 }
 
+// Deux etapes, deux codes QR, comme l'Album de la console : le premier fait
+// rejoindre le reseau, le second ouvre la page. Les afficher tous les deux en
+// meme temps serait plus court a coder et impossible a suivre - l'appareil
+// photo ne saurait pas lequel viser.
+void App::draw_phone() {
+    const int cx = Renderer::kWidth / 2;
+
+    if (phone_.step() == Phone::Step::Off) {
+        render_.text_centered(FontSize::Title, "Import depuis un telephone", cx,
+                              kContentTop + 60, palette::kText);
+        render_.text_centered(FontSize::Body,
+                              "La console cree son propre reseau Wi-Fi et affiche un code QR.",
+                              cx, kContentTop + 120, palette::kTextDim);
+        render_.text_centered(FontSize::Body,
+                              "Le telephone le rejoint, ouvre une page, et y depose ses liens.",
+                              cx, kContentTop + 154, palette::kTextDim);
+        render_.text_centered(FontSize::Body,
+                              "Pendant ce temps la console n'a plus Internet : les",
+                              cx, kContentTop + 210, palette::kWarn);
+        render_.text_centered(FontSize::Body,
+                              "telechargements reprennent des que le point d'acces est referme.",
+                              cx, kContentTop + 244, palette::kWarn);
+        render_.text_centered(FontSize::Body, "A pour ouvrir", cx, kContentTop + 300,
+                              palette::kAccent);
+        return;
+    }
+
+    if (phone_.step() == Phone::Step::Failed) {
+        render_.text_centered(FontSize::Title, "Le point d'acces n'a pas demarre", cx,
+                              kContentTop + 100, palette::kError);
+        render_.text_clipped(FontSize::Body, phone_.error(), kMargin, kContentTop + 160,
+                             Renderer::kWidth - 2 * kMargin, palette::kTextDim);
+        return;
+    }
+
+    const bool joining = phone_.step() == Phone::Step::JoinWifi;
+    render_.text_centered(FontSize::Title,
+                          joining ? "1. Rejoindre le reseau de la console"
+                                  : "2. Ouvrir la page",
+                          cx, kContentTop + 20, palette::kText);
+    render_.text_centered(FontSize::Small,
+                          joining ? "Visez ce code avec l'appareil photo du telephone"
+                                  : "Visez ce code : la page s'ouvre dans le navigateur",
+                          cx, kContentTop + 62, palette::kTextDim);
+
+    // Le code QR est dessine module par module. La marge blanche de quatre
+    // modules autour n'est pas facultative : sans elle, beaucoup de lecteurs ne
+    // trouvent tout simplement pas le motif.
+    const util::QrCode& qr = phone_.qr();
+    if (qr.size > 0) {
+        const int available = kContentBottom - (kContentTop + 100) - 90;
+        const int scale = std::max(2, available / (qr.size + 8));
+        const int side = (qr.size + 8) * scale;
+        const int ox = cx - side / 2;
+        const int oy = kContentTop + 100;
+
+        render_.rect(ox, oy, side, side, palette::kQrLight);
+        for (int y = 0; y < qr.size; ++y) {
+            for (int x = 0; x < qr.size; ++x) {
+                if (!qr.at(x, y)) continue;
+                render_.rect(ox + (x + 4) * scale, oy + (y + 4) * scale, scale, scale,
+                             palette::kQrDark);
+            }
+        }
+
+        // Le texte sous le code n'est pas un doublon : un appareil photo qui
+        // refuse de lire laisse sinon l'utilisateur sans recours.
+        int ty = oy + side + 14;
+        if (joining) {
+            render_.text_centered(FontSize::Body, "Reseau : " + phone_.ap().ssid(), cx, ty,
+                                  palette::kText);
+            render_.text_centered(FontSize::Body, "Mot de passe : " + phone_.ap().passphrase(), cx,
+                                  ty + 30, palette::kText);
+            render_.text_centered(FontSize::Small,
+                                  "Une fois le telephone connecte, appuyez sur Y", cx, ty + 64,
+                                  palette::kAccent);
+        } else {
+            render_.text_centered(FontSize::Body, phone_.url(), cx, ty, palette::kText);
+            const uint32_t got = phone_.imported();
+            render_.text_centered(FontSize::Small,
+                                  got == 0 ? "En attente d'un envoi"
+                                           : std::to_string(got) + " torrent(s) recu(s)",
+                                  cx, ty + 32, got == 0 ? palette::kTextDim : palette::kSuccess);
+        }
+    }
+}
+
 void App::draw_vpn() {
     const int x = kMargin;
     int y = kContentTop + 24;
@@ -845,6 +957,16 @@ void App::draw(uint64_t now_ms) {
                         {"L/R", "Onglet"},
                         {"+", "Quitter"}});
             break;
+        case Tab::Phone:
+            draw_phone();
+            draw_hints({{"A", phone_.step() == Phone::Step::Off ||
+                                      phone_.step() == Phone::Step::Failed
+                                  ? "Ouvrir"
+                                  : "Fermer"},
+                        {"Y", "Téléphone connecté"},
+                        {"L/R", "Onglet"},
+                        {"+", "Quitter"}});
+            break;
         case Tab::Vpn:
             draw_vpn();
             draw_hints({{"A", "Connecter / Couper"},
@@ -886,6 +1008,7 @@ void App::run() {
             sleep_disabled_ = busy;
         }
 
+        for (const std::string& event : phone_.take_events()) toast(event);
         vpn_.update(session_);
 
         // Relire la bibliothèque parcourt récursivement la carte : c'est lent,

@@ -10,6 +10,7 @@
 
 #include "bt/session.hpp"
 #include "diag/selftest.hpp"
+#include "ui/phone.hpp"
 #include "ui/render.hpp"
 #include "ui/settings.hpp"
 #include "vpn/manager.hpp"
@@ -34,7 +35,7 @@ public:
     void shutdown();
 
 private:
-    enum class Tab { Torrents, Library, Vpn, Settings, kCount };
+    enum class Tab { Torrents, Library, Phone, Vpn, Settings, kCount };
 
     void handle_input(uint64_t now_ms);
     void draw(uint64_t now_ms);
@@ -44,6 +45,7 @@ private:
     void draw_hints(const std::vector<std::pair<std::string, std::string>>& hints);
     void draw_torrents();
     void draw_library();
+    void draw_phone();
     void draw_vpn();
     void draw_settings();
     void run_selftest();
@@ -65,7 +67,7 @@ private:
     PadState pad_{};
 
     Tab tab_ = Tab::Torrents;
-    int selection_[static_cast<int>(Tab::kCount)] = {0, 0, 0, 0};
+    int selection_[static_cast<int>(Tab::kCount)] = {0, 0, 0, 0, 0};
     int scroll_ = 0;
 
     std::vector<bt::TorrentStatus> torrents_;
@@ -76,6 +78,8 @@ private:
     std::string toast_text_;
     bool toast_error_ = false;
     uint64_t toast_until_ms_ = 0;
+
+    Phone phone_;
 
     Settings settings_;
     int settings_cursor_ = 0;

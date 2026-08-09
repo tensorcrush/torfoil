@@ -16,6 +16,8 @@
 #include "bt/magnet.hpp"
 #include "bt/metainfo.hpp"
 #include "bt/piece_picker.hpp"
+#include "net/http_parse.hpp"
+#include "net/http_server.hpp"
 #include "bt/storage.hpp"
 #include <sys/resource.h>
 
@@ -26,6 +28,7 @@
 #include "net/wg/wireguard.hpp"
 #include "net/wg/x25519.h"
 #include "util/bytes.hpp"
+#include "util/qr.hpp"
 #include "util/sha1.hpp"
 
 namespace {
@@ -165,6 +168,157 @@ void test_magnet() {
     check(!bt::parse_magnet("magnet:?xt=urn:btmh:1220abcd", v2, &err), "rejet torrent v2");
     check(!bt::parse_magnet("http://example.com", v2, &err), "rejet non-magnet");
 }
+
+void test_qr() {
+    section("code QR");
+
+    // Vecteur publié : ces seize codewords de données donnent ces dix
+    // codewords de correction. C'est la seule partie du codage qu'on ne peut
+    // pas juger à l'œil, et celle qui décide qu'un code est lisible ou non.
+    const std::vector<uint8_t> data = {32,  91, 11, 120, 209, 114, 220, 77,
+                                       67,  64, 236, 17, 236, 17,  236, 17};
+    const std::vector<uint8_t> expected = {196, 35, 39, 119, 235, 215, 231, 226, 93, 23};
+    check(util::qr_reed_solomon(data, 10) == expected, "Reed-Solomon conforme au vecteur connu");
+
+    // Chaque version doit passer le contrôle interne de capacité : le nombre de
+    // modules libres laissés par les motifs de service est comparé à celui que
+    // la norme annonce. Un motif mal posé décale tout le flux d'un module, et
+    // le code sort silencieusement illisible.
+    const int lengths[] = {5, 20, 40, 60, 80, 105};
+    bool all_versions = true;
+    int last_version = 0;
+    for (int n : lengths) {
+        util::QrCode code;
+        if (!util::qr_encode(std::string(static_cast<size_t>(n), 'A'), code)) all_versions = false;
+        else if (code.version <= last_version || code.size != 17 + 4 * code.version) {
+            all_versions = false;
+        } else {
+            last_version = code.version;
+        }
+    }
+    check(all_versions, "versions 1 à 6 encodées, disposition cohérente");
+    check(last_version == 6, "la version croît avec la longueur");
+
+    util::QrCode oversized;
+    check(!util::qr_encode(std::string(107, 'A'), oversized), "au-delà de 106 octets, refus net");
+
+    util::QrCode code;
+    check(util::qr_encode("http://192.168.1.100:8080/", code), "URL de réseau local encodée");
+    check(code.version == 2 && code.size == 25, "version 2, 25 modules de côté");
+
+    // Motif de repère : anneau sombre, anneau clair, cœur sombre.
+    check(code.at(0, 0) && code.at(6, 0) && code.at(0, 6) && !code.at(1, 1) && code.at(2, 2) &&
+              code.at(4, 4) && !code.at(5, 5),
+          "motif de repère bien formé");
+
+    bool timing = true;
+    for (int i = 8; i < code.size - 8; ++i) {
+        if (code.at(i, 6) != (i % 2 == 0) || code.at(6, i) != (i % 2 == 0)) timing = false;
+    }
+    check(timing, "motifs de synchronisation alternés");
+
+    // Alignement en version 2 : centre en (18,18), entouré d'un anneau clair.
+    check(code.at(18, 18) && !code.at(17, 17) && !code.at(19, 19) && code.at(16, 16),
+          "motif d'alignement en place");
+    check(code.at(8, code.size - 8), "module toujours sombre présent");
+}
+
+// ---------------------------------------------------------------------------
+// Analyse HTTP — la porte d'entrée du téléphone
+// ---------------------------------------------------------------------------
+
+void test_http_parse() {
+    section("analyse HTTP");
+
+    net::HttpRequest request;
+    size_t body_offset = 0;
+    bool complete = false;
+
+    // Des en-têtes coupés en deux paquets sont la règle, pas l'exception : il
+    // faut attendre la suite, surtout pas fermer la connexion.
+    check(!net::parse_http_headers("POST /api/add HTTP/1.1\r\nHost: 192", request, &body_offset,
+                                   &complete) &&
+              !complete,
+          "en-têtes incomplets : on attend la suite");
+
+    const std::string raw =
+        "POST /api/add?x=1 HTTP/1.1\r\n"
+        "Host: 192.168.1.10:8080\r\n"
+        "CONTENT-type: multipart/form-data; boundary=----abc\r\n"
+        "Content-Length: 7\r\n"
+        "\r\n"
+        "1234567";
+    check(net::parse_http_headers(raw, request, &body_offset, &complete) && complete,
+          "requête complète analysée");
+    check(request.method == "POST" && request.path == "/api/add" && request.query == "x=1",
+          "méthode, chemin et query séparés");
+    check(request.content_length() == 7, "Content-Length lu");
+    check(request.content_type().find("multipart") == 0,
+          "en-tête retrouvé quelle que soit la casse");
+    check(raw.substr(body_offset) == "1234567", "début du corps repéré");
+
+    // Multipart : deux fichiers et un champ texte dans le même envoi, ce que
+    // fait le sélecteur de fichiers d'iOS quand on en choisit plusieurs.
+    const std::string boundary = "------WebKitFormBoundaryXYZ";
+    const std::string body = boundary + "\r\n" +
+                             "Content-Disposition: form-data; name=\"torrent\"; "
+                             "filename=\"jeu un.torrent\"\r\n"
+                             "Content-Type: application/x-bittorrent\r\n\r\n" +
+                             std::string("d4:infod\x00\x01", 10) + "\r\n" + boundary + "\r\n" +
+                             "Content-Disposition: form-data; name=\"torrent\"; "
+                             "filename=\"deux.torrent\"\r\n\r\n" +
+                             "SECOND" + "\r\n" + boundary + "\r\n" +
+                             "Content-Disposition: form-data; name=\"magnet\"\r\n\r\n" +
+                             "magnet:?xt=urn:btih:aa\r\nmagnet:?xt=urn:btih:bb" + "\r\n" +
+                             boundary + "--\r\n";
+
+    std::vector<net::MultipartPart> parts;
+    check(net::parse_multipart("multipart/form-data; boundary=" + boundary.substr(2), body, parts),
+          "corps multipart découpé");
+    check(parts.size() == 3, "trois parties retrouvées");
+    if (parts.size() == 3) {
+        check(parts[0].filename == "jeu un.torrent" && parts[0].name == "torrent",
+              "nom de fichier avec espace conservé");
+        check(parts[0].data == std::string("d4:infod\x00\x01", 10),
+              "octets binaires intacts, zéro compris");
+        check(parts[1].data == "SECOND", "deuxième fichier isolé");
+        check(parts[2].name == "magnet" &&
+                  parts[2].data == "magnet:?xt=urn:btih:aa\r\nmagnet:?xt=urn:btih:bb",
+              "champ texte multiligne");
+    } else {
+        check(false, "octets binaires intacts");
+        check(false, "deuxième fichier isolé");
+        check(false, "champ texte multiligne");
+    }
+
+    std::vector<net::MultipartPart> none;
+    check(!net::parse_multipart("text/plain", body, none), "sans frontière, refus");
+
+    check(net::form_field("op=remove&hash=abcd", "hash") == "abcd", "champ de formulaire");
+    check(net::form_field("op=remove&hash=abcd", "op") == "remove", "premier champ");
+    check(net::form_field("a=1&b=2", "c").empty(), "champ absent");
+    check(net::form_field("q=deux+mots%2Fun", "q") == "deux mots/un", "décodage %XX et +");
+
+    check(net::json_escape("a\"b\\c\nd") == "a\\\"b\\\\c\\nd", "échappement JSON");
+    check(net::html_escape("<a & \"b\">") == "&lt;a &amp; &quot;b&quot;&gt;",
+          "échappement HTML");
+
+    // Une adresse hors du réseau local ne doit jamais être servie.
+    check(net::is_private_ipv4(0xC0A80101u) && net::is_private_ipv4(0x0A000001u) &&
+              net::is_private_ipv4(0xAC100001u),
+          "adresses privées reconnues");
+    check(!net::is_private_ipv4(0x08080808u) && !net::is_private_ipv4(0xAC0F0001u),
+          "adresses publiques refusées");
+}
+
+// ---------------------------------------------------------------------------
+// Table des traductions
+//
+// Sept colonnes et plus de mille quatre cents chaînes : personne ne relira ça
+// à l'œil. Deux propriétés se vérifient en revanche mécaniquement, et ce sont
+// justement celles dont l'absence casse quelque chose.
+// ---------------------------------------------------------------------------
+
 
 void test_bitfield() {
     section("bitfield");
@@ -860,6 +1014,8 @@ int main() {
     test_bencode();
     test_torrent();
     test_magnet();
+    test_qr();
+    test_http_parse();
     test_bitfield();
     test_picker();
     test_blake2s();
