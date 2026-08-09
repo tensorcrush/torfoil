@@ -132,7 +132,19 @@ bool SoftAp::start(std::string* err) {
     // ignorent encore le 5 GHz.
     lp2pGroupInfoSetFrequencyChannel(&info, 24, 0);
     lp2pGroupInfoSetStealthEnabled(&info, false);
-    lp2pGroupInfoSetMemberCountMax(&info, 4);
+
+    // UN membre, et pas quatre. C'est la seule valeur que lp2p accepte en
+    // WPA2-PSK : à quatre il refuse le groupe avec 2231-0261, à un il le crée.
+    // La sonde l'a montré en isolant la variable — même mode, même fréquence,
+    // même service, seul ce chiffre change, et il fait toute la différence.
+    // (Avec le chiffrement d'origine de Nintendo, quatre passe : la contrainte
+    // est propre au mode WPA2.)
+    //
+    // Ce n'est pas une limite gênante ici. Le téléphone ne devient pas
+    // « membre » d'un groupe lp2p — il rejoint un réseau Wi-Fi ordinaire et
+    // reçoit une adresse par DHCP. Et un import se fait depuis un téléphone,
+    // pas depuis quatre.
+    lp2pGroupInfoSetMemberCountMax(&info, 1);
     info.priority = 90;  // ApplicationPriority, la seule admise par lp2p:app
 
     rc = lp2pCreateGroup(&info);
