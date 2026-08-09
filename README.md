@@ -209,6 +209,10 @@ location.
   throughput.
 - **Mullvad dropped port forwarding** in 2023: downloads are normal, seeding is
   weak (no incoming connections).
+- **BitTorrent v2 (BEP 52) is not supported.** The engine is v1: SHA-1 pieces, no
+  merkle tree. Hybrid torrents work through their v1 half; v2-only ones do not.
+  Almost everything in circulation is still v1 or hybrid.
+- **Everything in a torrent is downloaded.** There is no per-file selection.
 - **FAT32 SD cards** are handled. Files over 4 GB are created as Horizon
   *concatenation files*, the mechanism built for exactly this. No need to
   reformat to exFAT.
