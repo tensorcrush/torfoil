@@ -10,6 +10,7 @@
 
 #include "bt/session.hpp"
 #include "diag/selftest.hpp"
+#include "ui/icons.hpp"
 #include "ui/phone.hpp"
 #include "ui/render.hpp"
 #include "ui/settings.hpp"
@@ -25,6 +26,7 @@ struct LibraryEntry {
     uint64_t size = 0;
     std::string kind;    // extension en majuscules, vide si le nom n'en a pas
     bool ready = true;   // faux tant que le torrent qui l'écrit n'a pas fini
+    bool is_dir = false;
     std::string status;  // « en cours — 42% » le cas échéant
 };
 
@@ -35,7 +37,11 @@ public:
     void shutdown();
 
 private:
-    enum class Tab { Torrents, Library, Phone, Vpn, Settings, kCount };
+    enum class Tab { Torrents, Downloads, Phone, Vpn, Settings, kCount };
+
+    // Ce qui recouvre l'écran. Un seul à la fois : empiler des panneaux rendrait
+    // le bouton B ambigu, et c'est le seul chemin de retour.
+    enum class Overlay { None, Actions, Info, Files, Confirm };
 
     void handle_input(uint64_t now_ms);
     void draw(uint64_t now_ms);
@@ -44,7 +50,11 @@ private:
     void draw_tabs();
     void draw_hints(const std::vector<std::pair<std::string, std::string>>& hints);
     void draw_torrents();
-    void draw_library();
+    void draw_downloads();
+    void draw_actions();
+    void draw_info();
+    void draw_files();
+    void draw_confirm();
     void draw_phone();
     // Écran de premier lancement : la seule chose affichée tant que la langue
     // n'a pas été choisie.
@@ -59,13 +69,28 @@ private:
 
     void add_magnet_flow();
     void import_magnets_file();
+    int import_inbox();
     void refresh_library();
     void toast(const std::string& message, bool error = false);
 
     int& selection();
     int item_count() const;
 
+    // Torrent sous le curseur, ou celui que l'incrustation regarde. Renvoie
+    // nullptr plutôt qu'une référence sur un torrent disparu entre deux images :
+    // le moteur peut en retirer un pendant qu'une incrustation le décrit.
+    const bt::TorrentStatus* focused() const;
+
+    void open_actions();
+    void open_files(const std::string& root, const std::string& title);
+    // Par valeur, et ce n'est pas un oubli : on l'appelle avec le chemin d'une
+    // entrée de files_, que la première ligne du corps efface. Une référence
+    // pendrait dans le vide et le dossier s'ouvrait vide.
+    void enter_dir(std::string dir);
+    void run_action();
+
     Renderer render_;
+    IconSet icons_;
     bt::Session session_;
     vpn::Manager vpn_;
     PadState pad_{};
@@ -75,9 +100,26 @@ private:
     int scroll_ = 0;
 
     std::vector<bt::TorrentStatus> torrents_;
-    std::vector<LibraryEntry> library_;
     uint64_t last_library_scan_ms_ = 0;
     std::string last_completion_;  // signature des torrents terminés
+
+    // Ce que les téléchargements ont laissé sur la carte sans qu'aucun torrent
+    // ne le revendique : un torrent retiré « en gardant les fichiers » laisse
+    // parfois des dizaines de gigaoctets dont plus rien ne parle.
+    uint32_t orphan_count_ = 0;
+    uint64_t orphan_bytes_ = 0;
+
+    Overlay overlay_ = Overlay::None;
+    std::string overlay_hash_;  // torrent décrit par l'incrustation
+    int action_cursor_ = 0;
+    std::vector<Str> actions_;
+
+    std::string files_root_;  // racine dont on ne remonte pas
+    std::string files_dir_;
+    std::string files_title_;
+    std::vector<LibraryEntry> files_;
+    int files_cursor_ = 0;
+    int files_scroll_ = 0;
 
     std::string toast_text_;
     bool toast_error_ = false;

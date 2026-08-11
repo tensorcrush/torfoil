@@ -28,6 +28,10 @@ enum class TorrentState {
     Downloading,
     Seeding,
     Paused,
+    // En file d'attente : prêt à démarrer, mais le nombre de téléchargements
+    // simultanés est atteint. Distinct de Paused, qui est une décision de
+    // l'utilisateur et que la file ne doit jamais défaire toute seule.
+    Queued,
     Completed,
     Failed,
 };
@@ -60,6 +64,17 @@ struct TorrentStatus {
     // tout le monde et ne permet donc de reconnaître personne.
     std::string content_root;
     std::string primary_file;  // plus gros fichier du torrent
+
+    // Détail, affiché dans l'écran « Informations ». Renseigné seulement quand
+    // les métadonnées sont connues.
+    uint32_t pieces_total = 0;
+    uint32_t pieces_done = 0;
+    uint32_t pieces_rejected = 0;
+    uint64_t piece_length = 0;
+    uint32_t file_count = 0;
+    bool is_private = false;
+    std::string magnet;
+    std::vector<std::string> trackers;
 };
 
 class Torrent;
@@ -111,6 +126,16 @@ public:
     void set_privacy(const Privacy& privacy);
     Privacy privacy() const;
 
+    // Nombre de torrents autorisés à télécharger en même temps. Au-delà, les
+    // suivants attendent leur tour. Zéro lève la limite.
+    //
+    // Ce n'est pas un confort d'affichage : trente torrents lancés ensemble se
+    // partagent la même liaison et les mêmes entrées/sorties de carte SD, et
+    // aucun ne finit. Deux à la fois terminent l'un après l'autre, ce qui est
+    // toujours plus utile que trente à moitié.
+    void set_max_active(int n) { max_active_.store(n < 0 ? 0 : n); }
+    int max_active() const { return max_active_.load(); }
+
     // Lien magnet reconstruit pour un torrent connu — affiché dans l'interface
     // et réutilisable ailleurs.
     static std::string magnet_for(const MetaInfo& meta);
@@ -155,6 +180,7 @@ private:
     void announce_loop();
     void process_commands();
     void publish_status();
+    void update_queue();
 
     void queue_announce(AnnounceJob job);
     std::shared_ptr<net::Transport> transport() const;
@@ -203,6 +229,8 @@ private:
     // fils sans rien attendre. Une seule relecture tourne à la fois, ce drapeau
     // unique suffit.
     std::atomic<bool> skip_check_{false};
+
+    std::atomic<int> max_active_{2};
 
     std::atomic<uint32_t> total_rate_down_{0};
     std::atomic<uint32_t> total_rate_up_{0};

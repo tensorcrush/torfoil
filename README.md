@@ -30,11 +30,29 @@ when the main application refuses to start.
 
 | Tab | Controls |
 |---|---|
-| Torrents | **X** paste a magnet · **ZL** import `magnets.txt` · **Y** pause/resume · **B** skip verification · **ZR** remove |
-| Library | **X** rescan folder. A read-only view of what the downloads have put on the card |
+| Torrents | **↑↓** select · **A** actions on the torrent under the cursor · **X** paste a magnet · **ZL** import `magnets.txt` · **ZR** orphan files |
+| Downloads | What is running right now, then the queue in order |
 | Phone | **A** open/close the access point · **Y** once the phone has joined |
 | VPN | **X** Mullvad account (16 digits) · **A** connect/disconnect · **Y** country |
 | Settings | **↑↓** select · **A** toggle · **←→** change value · **Y** self-test |
+
+The **Torrents** tab is a dense list, one row per torrent: an icon for the kind
+of content, the name, the state, and the percentage on the right. Nothing else
+is shown there — everything else is one **A** away.
+
+| Action | What it does |
+|---|---|
+| Location | Browses the torrent's own files, and only those. Split files (a folder of `00`, `01`… slices) appear as the single file they are. |
+| Information | Pieces held and rejected, piece length, file count, peers, blocks in flight, rates, ETA, trackers, private flag, hash, path. |
+| Pause / Resume | Drops the peers, keeps the resume point. |
+| Remove | Keeping the files, or deleting them — the second asks for confirmation and names the torrent. |
+
+The **Downloads** tab shows what is actually moving: the running torrents as
+large cards with rate, ETA and peers, then the numbered queue below.
+
+Torfoil runs **two torrents at a time** by default. The rest wait in the queue
+and start on their own as slots free up. `max_active` in the Settings tab sets
+the limit from 1 to 8, or `0` for no limit at all.
 
 Active torrents **resume automatically on startup**: each magnet link is kept in
 `sdmc:/torfoil/downloads/.<hash>.magnet`. Without this, closing the application
@@ -80,7 +98,7 @@ the whole matrix and changing one variable at a time.
 ### Adding magnet links
 
 Typing a magnet on a virtual keyboard is painful, so there are three other ways
-in: the phone import above, and the two below.
+in: the phone import above, and the three below.
 
 - **X** opens the system keyboard. Fine for a short link, or if you can paste it
   from the console browser.
@@ -90,6 +108,10 @@ in: the phone import above, and the two below.
   added at once. The file is created empty on first launch. Accepted links are
   removed from it; rejected ones stay, with the reason as a comment, so
   re-importing never creates duplicates.
+- **`sdmc:/torfoil/inbox`**, for `.torrent` files. Drop them in the folder and
+  they are picked up at launch, and again on every **ZL**. A file that is
+  accepted is deleted from the inbox, so the folder is also the list of what has
+  not been taken yet.
 
 ## Why everything is written from scratch
 
@@ -310,6 +332,7 @@ software ChaCha20-Poly1305 on every tunnelled packet.
 |---|---|
 | "SD write failed" | A large download exceeds 4 GB, and such a file cannot exist on a FAT32 card. Switched to Horizon *concatenation files*, which present a split directory as a single file. |
 | "SD write failed", again | The fix above only applied to missing files. Ordinary files left by the previous version stayed ordinary (still capped at 4 GB) and opening them reported nothing. The code now tests whether an existing file can reach its final size, and recreates it otherwise. |
+| A flat file list nobody could use | The Library tab listed every file on the card side by side, with no way to tell which torrent had written what. It is gone: the file view now opens from a torrent and is scoped to that torrent's content, and what no torrent claims is counted in a single footer line. |
 | Library working "halfway" | In-progress downloads looked finished. They are now greyed out with their progress, and the recursive scan no longer stalls the display every 10 s. |
 | A download permanently stuck | Torrents were not resumed on restart: the download simply stopped, and the file stayed forever incomplete. The magnet is now kept and the torrent restarted automatically. |
 | Only three peers with the VPN on | The tunnel's lwIP stack had 96 buffers shared across every connection. The ceiling was not the number of peers found but that pool: raised to 2048, with 96 TCP connections available. |

@@ -42,6 +42,11 @@ struct Settings {
     // rarement — les pairs favorisent ceux qui rendent la pareille.
     bool no_upload = false;
 
+    // Combien de torrents téléchargent en même temps. Les suivants attendent.
+    // Zéro lève la limite, ce qui est un choix et non un défaut : trente
+    // torrents lancés ensemble ne se terminent jamais.
+    int max_active = 2;
+
     bool load(const std::string& path);
     bool save(const std::string& path) const;
 };

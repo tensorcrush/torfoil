@@ -1015,3 +1015,149 @@ X(HintClose,
 X(HintPhoneJoined,
   "Telefon verbunden", "Phone connected", "Teléfono conectado", "Téléphone connecté",
   "スマホ接続済み", "Телефон подключён", "手机已连接")
+
+// ---------------------------------------------------------------------------
+// Liste unifiée, menu d'actions, informations, fichiers, file d'attente
+// ---------------------------------------------------------------------------
+X(TabDownloads,
+  "Downloads", "Downloads", "Descargas", "Téléchargements", "ダウンロード",
+  "Загрузки", "下载")
+X(StateQueued,
+  "Wartet", "Queued", "En cola", "En attente", "待機中", "В очереди", "排队中")
+X(ActionsTitle,
+  "Aktionen", "Actions", "Acciones", "Actions", "操作", "Действия", "操作")
+X(ActOpenLocation,
+  "Dateien ansehen", "View files", "Ver archivos", "Voir les fichiers",
+  "ファイルを見る", "Показать файлы", "查看文件")
+X(ActInfo,
+  "Informationen", "Information", "Información", "Informations", "情報",
+  "Сведения", "详细信息")
+X(ActPause,
+  "Anhalten", "Pause", "Pausar", "Mettre en pause", "一時停止", "Приостановить",
+  "暂停")
+X(ActResume,
+  "Fortsetzen", "Resume", "Reanudar", "Reprendre", "再開", "Возобновить", "继续")
+X(ActSkipCheck,
+  "Prüfung überspringen", "Skip check", "Omitir verificación",
+  "Passer la vérification", "確認をスキップ", "Пропустить проверку", "跳过校验")
+X(ActRemoveKeep,
+  "Entfernen, Dateien behalten", "Remove, keep files", "Quitar, conservar archivos",
+  "Retirer, garder les fichiers", "削除（ファイルは残す）",
+  "Убрать, файлы оставить", "移除，保留文件")
+X(ActRemoveDelete,
+  "Entfernen und löschen", "Remove and delete", "Quitar y borrar",
+  "Retirer et supprimer les fichiers", "削除（ファイルも消す）",
+  "Убрать и удалить файлы", "移除并删除文件")
+X(ConfirmDeleteTitle,
+  "Dateien endgültig löschen?", "Delete the files for good?",
+  "¿Borrar los archivos definitivamente?", "Supprimer définitivement les fichiers ?",
+  "ファイルを完全に削除しますか？", "Удалить файлы безвозвратно?", "确定永久删除文件？")
+X(ConfirmDeleteBody,
+  "%s wird von der SD-Karte gelöscht. Das lässt sich nicht rückgängig machen.",
+  "%s will be erased from the SD card. This cannot be undone.",
+  "%s se borrará de la tarjeta SD. No se puede deshacer.",
+  "%s sera effacé de la carte SD. C'est sans retour.",
+  "%s を SD カードから消します。取り消せません。",
+  "%s будет стёрт с карты SD. Отменить нельзя.",
+  "将从 SD 卡上删除 %s。此操作无法撤销。")
+X(HintConfirm,
+  "Bestätigen", "Confirm", "Confirmar", "Confirmer", "確定", "Подтвердить", "确认")
+X(HintCancel,
+  "Abbrechen", "Cancel", "Cancelar", "Annuler", "キャンセル", "Отмена", "取消")
+X(HintActions,
+  "Aktionen", "Actions", "Acciones", "Actions", "操作", "Действия", "操作")
+X(HintBack,
+  "Zurück", "Back", "Atrás", "Retour", "戻る", "Назад", "返回")
+X(HintOrphans,
+  "Herrenlose Dateien", "Orphan files", "Archivos huérfanos", "Fichiers orphelins",
+  "孤立ファイル", "Осиротевшие файлы", "孤立文件")
+
+X(InfoName, "Name", "Name", "Nombre", "Nom", "名前", "Название", "名称")
+X(InfoState, "Status", "State", "Estado", "État", "状態", "Состояние", "状态")
+X(InfoSize, "Größe", "Size", "Tamaño", "Taille", "サイズ", "Размер", "大小")
+X(InfoProgress,
+  "Fortschritt", "Progress", "Progreso", "Avancement", "進捗", "Прогресс", "进度")
+X(InfoPieces, "Teile", "Pieces", "Piezas", "Pièces", "ピース", "Части", "分块")
+X(InfoPieceLen,
+  "Teilgröße", "Piece size", "Tamaño de pieza", "Taille d'une pièce", "ピースサイズ",
+  "Размер части", "分块大小")
+X(InfoFiles, "Dateien", "Files", "Archivos", "Fichiers", "ファイル", "Файлы", "文件")
+X(InfoRejected,
+  "Verworfene Teile", "Rejected pieces", "Piezas rechazadas", "Pièces rejetées",
+  "破棄ピース", "Отброшено частей", "已丢弃分块")
+X(InfoPeers, "Gegenstellen", "Peers", "Pares", "Pairs", "ピア", "Пиры", "节点")
+X(InfoRates,
+  "Durchsatz", "Throughput", "Velocidad", "Débit", "速度", "Скорость", "速率")
+X(InfoEta,
+  "Restzeit", "Time left", "Tiempo restante", "Temps restant", "残り時間",
+  "Осталось", "剩余时间")
+X(InfoPrivate,
+  "Privater Torrent", "Private torrent", "Torrent privado", "Torrent privé",
+  "プライベート", "Приватный торрент", "私有种子")
+X(InfoTrackers, "Tracker", "Trackers", "Trackers", "Trackers", "トラッカー",
+  "Трекеры", "Tracker")
+X(InfoLocation,
+  "Speicherort", "Location", "Ubicación", "Emplacement", "保存先",
+  "Расположение", "位置")
+X(InfoHash, "Info-Hash", "Info hash", "Info hash", "Info-hash", "info hash",
+  "Info-hash", "Info hash")
+X(InfoYes, "ja", "yes", "sí", "oui", "はい", "да", "是")
+X(InfoNo, "nein", "no", "no", "non", "いいえ", "нет", "否")
+X(InfoBlocksInFlight,
+  "Blöcke unterwegs", "Blocks in flight", "Bloques en vuelo", "Blocs en vol",
+  "転送中ブロック", "Блоков в пути", "传输中的块")
+
+X(FilesEmpty,
+  "Noch nichts auf der Karte", "Nothing on the card yet", "Nada en la tarjeta todavía",
+  "Rien sur la carte pour l'instant", "カードにはまだ何もありません",
+  "На карте пока ничего нет", "卡上暂无内容")
+X(FilesUp,
+  ".. übergeordneter Ordner", ".. parent folder", ".. carpeta superior",
+  ".. dossier parent", ".. 上の階層", ".. на уровень выше", ".. 上级文件夹")
+X(OrphanFooter,
+  "%u Datei(en) ohne Torrent · %s — ZR", "%u file(s) with no torrent · %s — ZR",
+  "%u archivo(s) sin torrent · %s — ZR", "%u fichier(s) sans torrent · %s — ZR",
+  "トレントのないファイル %u 件 · %s — ZR", "%u файл(ов) без торрента · %s — ZR",
+  "%u 个无种子文件 · %s — ZR")
+X(OrphanTitle,
+  "Dateien ohne Torrent", "Files with no torrent", "Archivos sin torrent",
+  "Fichiers sans torrent", "トレントのないファイル", "Файлы без торрента",
+  "无种子的文件")
+
+X(DlActive,
+  "Läuft gerade", "Downloading now", "Descargando ahora", "En cours",
+  "ダウンロード中", "Сейчас качается", "正在下载")
+X(DlQueue,
+  "Warteschlange", "Up next", "En cola", "File d'attente", "次の順番",
+  "Очередь", "队列")
+X(DlQueueEmpty,
+  "nichts in der Warteschlange", "nothing waiting", "nada en cola",
+  "rien en attente", "待機なし", "очередь пуста", "队列为空")
+X(DlNothing,
+  "Kein Download läuft", "No download running", "Ninguna descarga en curso",
+  "Aucun téléchargement en cours", "ダウンロードはありません",
+  "Загрузок нет", "没有正在进行的下载")
+X(DlNothingHint,
+  "Im Reiter Torrents einen Link hinzufügen",
+  "Add a link from the Torrents tab",
+  "Añade un enlace desde la pestaña Torrents",
+  "Ajoutez un lien depuis l'onglet Torrents",
+  "Torrents タブからリンクを追加します",
+  "Добавьте ссылку во вкладке «Торренты»",
+  "在「种子」标签页中添加链接")
+
+X(FieldMaxActive,
+  "Gleichzeitige Downloads", "Simultaneous downloads", "Descargas simultáneas",
+  "Téléchargements simultanés", "同時ダウンロード数",
+  "Одновременных загрузок", "同时下载数")
+X(MaxActiveEffect,
+  "Weitere warten, statt sich die Leitung zu teilen",
+  "The rest wait instead of sharing the line",
+  "El resto espera en vez de repartirse la línea",
+  "Les autres attendent au lieu de se partager la ligne",
+  "残りは回線を分け合わずに待ちます",
+  "Остальные ждут, а не делят канал",
+  "其余的排队等待，而不是共享带宽")
+X(MaxActiveUnlimited,
+  "ohne Grenze", "no limit", "sin límite", "sans limite", "無制限",
+  "без ограничения", "不限")

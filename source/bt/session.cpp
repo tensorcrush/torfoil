@@ -59,6 +59,7 @@ const char* state_label(TorrentState state) {
         case TorrentState::Downloading: return "Téléchargement";
         case TorrentState::Seeding: return "Partage";
         case TorrentState::Paused: return "En pause";
+        case TorrentState::Queued: return "En attente";
         case TorrentState::Completed: return "Terminé";
         case TorrentState::Failed: return "Erreur";
     }
@@ -106,20 +107,39 @@ public:
     TorrentState state() const { return state_; }
 
     void set_paused(bool paused) {
-        if (paused) {
-            drop_all_peers();
-            state_ = TorrentState::Paused;
-        } else if (state_ == TorrentState::Paused) {
-            state_ = meta_complete_ ? (picker_.is_complete() ? TorrentState::Seeding
-                                                             : TorrentState::Downloading)
-                                    : TorrentState::FetchingMetadata;
-        }
+        user_paused_ = paused;
+        apply_gate();
     }
+
+    // Mise en attente par la file, qui n'est pas une mise en pause : reprendre
+    // un torrent que la file avait rangé doit le rendre à la file, pas le
+    // lancer de force devant les autres.
+    void set_queued(bool queued) {
+        queued_ = queued;
+        apply_gate();
+    }
+
+    bool user_paused() const { return user_paused_; }
+
+    // Occupe-t-il un des créneaux de téléchargement ?
+    //
+    // Seul ce qui tire sur le réseau compte. Un torrent qui partage ne demande
+    // rien, il répond. Et une relecture ne touche que la carte : la ranger dans
+    // la file ferait attendre derrière un téléchargement en cours un torrent
+    // déjà complet, qui n'avait qu'à se relire pour le découvrir.
+    bool holds_slot() const {
+        return state_ == TorrentState::Downloading || state_ == TorrentState::FetchingMetadata;
+    }
+
+    bool waiting_in_queue() const { return state_ == TorrentState::Queued; }
 
     // ---- boucle moteur ----
 
     void tick(uint64_t now_ms, const std::shared_ptr<net::Transport>& transport) {
-        if (state_ == TorrentState::Paused || state_ == TorrentState::Failed) return;
+        if (state_ == TorrentState::Paused || state_ == TorrentState::Queued ||
+            state_ == TorrentState::Failed) {
+            return;
+        }
         if (!transport || !transport->ready()) {
             // Plus de réseau, ou VPN exigé et absent : on lâche tout et on
             // attend. Rien ne peut sortir tant qu'un chemin n'existe pas.
@@ -242,7 +262,9 @@ public:
             std::remove(resume_path().c_str());
             message_ = "fichier recréé pour la carte SD — téléchargement repris de zéro";
             util::log_line("point de reprise invalidé : " + message_);
+            checked_ = true;
             state_ = TorrentState::Downloading;
+            apply_gate();
             return;
         }
 
@@ -275,15 +297,20 @@ public:
             save_resume();
         }
         check_progress_ = 0.0f;
+        checked_ = true;
 
         state_ = picker_.is_complete() ? TorrentState::Seeding : TorrentState::Downloading;
         if (picker_.is_complete()) message_ = "terminé";
+        apply_gate();
     }
 
     // ---- trackers ----
 
     bool wants_announce(uint64_t now_ms) const {
-        if (state_ == TorrentState::Paused || state_ == TorrentState::Failed) return false;
+        if (state_ == TorrentState::Paused || state_ == TorrentState::Queued ||
+            state_ == TorrentState::Failed) {
+            return false;
+        }
         return now_ms >= next_announce_ms_;
     }
 
@@ -394,6 +421,17 @@ public:
         s.content_root = meta_.name.empty() ? std::string() : dir_ + "/" + meta_.name;
         s.primary_file = primary_file_;
 
+        s.is_private = meta_.is_private;
+        s.trackers = meta_.trackers;
+        s.pieces_rejected = corrupt_pieces_;
+        if (meta_complete_) {
+            s.pieces_total = meta_.piece_count();
+            s.pieces_done = picker_.have().count();
+            s.piece_length = meta_.piece_length;
+            s.file_count = static_cast<uint32_t>(meta_.files.size());
+            s.magnet = Session::magnet_for(meta_);
+        }
+
         for (const auto& peer : peers_) {
             if (peer->state() != PeerConnection::State::Ready) continue;
             ++s.peers_connected;
@@ -454,7 +492,10 @@ public:
 
     void on_peer_block(PeerConnection& peer, uint32_t piece, uint32_t offset, const uint8_t* data,
                        uint32_t len) override {
-        if (!meta_complete_ || state_ == TorrentState::Paused) return;
+        if (!meta_complete_ || state_ == TorrentState::Paused ||
+            state_ == TorrentState::Queued) {
+            return;
+        }
         if (piece >= meta_.piece_count() || len == 0) return;
 
         std::string err;
@@ -716,7 +757,9 @@ private:
             peer->send_interested(true);
         }
 
+        checked_ = false;
         state_ = TorrentState::Checking;
+        apply_gate();
     }
 
     void request_blocks(PeerConnection& peer, uint64_t now_ms) {
@@ -808,9 +851,40 @@ private:
         return true;
     }
 
+    // Recalcule l'état à partir des deux freins — l'utilisateur et la file — et
+    // de l'avancement réel. Passer par un seul endroit évite l'incohérence
+    // classique : reprendre un torrent en attente le ferait démarrer, alors que
+    // la file venait justement de le ranger.
+    void apply_gate() {
+        if (state_ == TorrentState::Failed) return;
+
+        if (user_paused_) {
+            if (state_ != TorrentState::Paused) drop_all_peers();
+            state_ = TorrentState::Paused;
+            return;
+        }
+        // Une relecture va au bout. Le frein de la file s'appliquera à sa fin,
+        // qui rappelle apply_gate() — et d'ici là on saura si ce torrent a
+        // seulement besoin d'un créneau.
+        if (state_ == TorrentState::Checking) return;
+        if (queued_) {
+            if (state_ != TorrentState::Queued) drop_all_peers();
+            state_ = TorrentState::Queued;
+            return;
+        }
+        if (state_ != TorrentState::Paused && state_ != TorrentState::Queued) return;
+
+        if (!meta_complete_) state_ = TorrentState::FetchingMetadata;
+        else if (!checked_) state_ = TorrentState::Checking;
+        else state_ = picker_.is_complete() ? TorrentState::Seeding : TorrentState::Downloading;
+    }
+
     Session& session_;
     MetaInfo meta_;
     bool meta_complete_ = false;
+    bool checked_ = false;
+    bool user_paused_ = false;
+    bool queued_ = false;
 
     std::string hash_hex_;
     std::string name_;
@@ -1180,6 +1254,40 @@ void Session::process_commands() {
     }
 }
 
+// Fait tenir le nombre de téléchargements simultanés dans la limite réglée.
+//
+// L'ordre est celui d'ajout : le premier arrivé est le premier servi, et il le
+// reste. Promouvoir dans l'ordre et rétrograder à rebours garantit qu'un
+// torrent ne change pas de camp d'un tour à l'autre — un va-et-vient
+// coûterait, à chaque bascule, toutes les connexions ouvertes.
+void Session::update_queue() {
+    const int limit = max_active_.load();
+    if (limit <= 0) {
+        for (auto& t : torrents_) {
+            if (t->waiting_in_queue()) t->set_queued(false);
+        }
+        return;
+    }
+
+    int active = 0;
+    for (auto& t : torrents_) {
+        if (t->holds_slot()) ++active;
+    }
+
+    for (auto& t : torrents_) {
+        if (active >= limit) break;
+        if (!t->waiting_in_queue() || t->user_paused()) continue;
+        t->set_queued(false);
+        if (t->holds_slot()) ++active;
+    }
+
+    for (auto it = torrents_.rbegin(); it != torrents_.rend() && active > limit; ++it) {
+        if (!(*it)->holds_slot()) continue;
+        (*it)->set_queued(true);
+        --active;
+    }
+}
+
 void Session::publish_status() {
     std::vector<TorrentStatus> fresh;
     fresh.reserve(torrents_.size());
@@ -1215,6 +1323,7 @@ void Session::engine_loop() {
         const uint64_t now = util::now_ms();
 
         process_commands();
+        update_queue();
 
         // Les vérifications de reprise sont longues : on les fait ici, hors du
         // poll, et l'IHM affiche « Vérification » pendant ce temps.

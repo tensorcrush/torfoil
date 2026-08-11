@@ -23,17 +23,24 @@ constexpr int kHintBarHeight = 52;
 constexpr int kContentTop = kTopBarHeight + kTabBarHeight;
 constexpr int kContentBottom = Renderer::kHeight - kHintBarHeight;
 constexpr int kMargin = 40;
-constexpr int kRowHeight = 96;
-constexpr int kRowGap = 10;
+// Liste dense : de quoi lire un nom, un état et un pourcentage, pas davantage.
+// Une ligne de 96 pixels n'en montrait que quatre à la fois, ce qui obligeait à
+// faire défiler pour répondre à « où en est ma bibliothèque ? ».
+constexpr int kRowHeight = 62;
+constexpr int kRowGap = 6;
+constexpr int kIconSize = 34;
 
 const char* kDownloadDir = "sdmc:/torfoil/downloads";
 const char* kMagnetsFile = "sdmc:/torfoil/magnets.txt";
 const char* kSettingsFile = "sdmc:/torfoil/settings.cfg";
+// Là où le téléphone dépose ce qu'il envoie, et où l'on peut poser soi-même des
+// fichiers .torrent depuis un PC.
+const char* kInboxDir = "sdmc:/torfoil/inbox";
 
 std::string tab_label(int index) {
     switch (index) {
         case 0: return tr(Str::TabTorrents);
-        case 1: return tr(Str::TabLibrary);
+        case 1: return tr(Str::TabDownloads);
         case 2: return tr(Str::TabPhone);
         case 3: return tr(Str::TabVpn);
         case 4: return tr(Str::TabSettings);
@@ -51,6 +58,7 @@ Str state_key(bt::TorrentState state) {
         case bt::TorrentState::Downloading: return Str::StateDownloading;
         case bt::TorrentState::Seeding: return Str::StateSeeding;
         case bt::TorrentState::Paused: return Str::StatePaused;
+        case bt::TorrentState::Queued: return Str::StateQueued;
         case bt::TorrentState::Completed: return Str::StateCompleted;
         case bt::TorrentState::Failed: return Str::StateFailed;
     }
@@ -63,8 +71,43 @@ Color state_color(bt::TorrentState state) {
         case bt::TorrentState::Seeding:
         case bt::TorrentState::Completed: return palette::kSuccess;
         case bt::TorrentState::Failed: return palette::kError;
-        case bt::TorrentState::Paused: return palette::kTextDim;
+        case bt::TorrentState::Paused:
+        case bt::TorrentState::Queued: return palette::kTextDim;
         default: return palette::kWarn;
+    }
+}
+
+// L'icône dit d'abord ce qui se passe, ensuite ce que c'est. Un torrent en
+// pause ou terminé se reconnaît à sa pastille ; sinon on montre le type du plus
+// gros fichier, qui est celui pour lequel on a lancé le téléchargement.
+// IconSet parle SDL et ignore la palette : c'est ce qui lui permet d'être
+// essayé seul, hors de l'application. La conversion tient en une ligne.
+SDL_Color tint(Color c) {
+    return SDL_Color{c.r, c.g, c.b, c.a};
+}
+
+// L'icône dit ce que c'est : le type du plus gros fichier, celui pour lequel on
+// a lancé le téléchargement.
+//
+// L'état ne passe pas par elle. Il est déjà écrit en toutes lettres, coloré
+// dans la barre d'avancement et chiffré en pourcentage ; le lui faire dire une
+// quatrième fois coûterait la seule information qu'elle porte seule, et une
+// bibliothèque terminée redeviendrait une colonne de coches identiques.
+IconKind torrent_icon(const bt::TorrentStatus& t) {
+    if (!t.primary_file.empty()) {
+        const IconKind kind = icon_kind_for(t.primary_file);
+        if (kind != IconKind::Unknown) return kind;
+    }
+
+    // Type encore inconnu — métadonnées absentes, ou extension qui ne dit rien.
+    // L'état est alors ce qu'on a de mieux à montrer.
+    switch (t.state) {
+        case bt::TorrentState::Paused:
+        case bt::TorrentState::Queued: return IconKind::Paused;
+        case bt::TorrentState::Seeding:
+        case bt::TorrentState::Completed: return IconKind::Done;
+        case bt::TorrentState::Failed: return IconKind::Unknown;
+        default: return IconKind::Downloading;
     }
 }
 
@@ -108,18 +151,21 @@ bool looks_like_split_file(const std::string& dir, uint64_t& total_size) {
     return true;
 }
 
-// Liste ce que les telechargements ont pose sur la carte. Aucune extension n'est
-// privilegiee : Torfoil ne sait pas ce qu'est un paquet, il ne connait que des
-// fichiers.
-void scan_directory(const std::string& dir, int depth, std::vector<LibraryEntry>& out) {
-    if (depth > 3) return;
-
+// Contenu immédiat d'un dossier, sans descendre. La descente est décidée par
+// l'utilisateur, un dossier à la fois : parcourir la carte entière pour
+// afficher un écran a longtemps été ce qui rendait la bibliothèque lente.
+void list_dir(const std::string& dir, std::vector<LibraryEntry>& out) {
     DIR* handle = ::opendir(dir.c_str());
     if (!handle) return;
 
     while (dirent* entry = ::readdir(handle)) {
         const std::string name = entry->d_name;
-        if (name == "." || name == "..") continue;
+        // Tout ce qui commence par un point est masqué, et ce n'est pas une
+        // convention empruntée pour faire joli : les points de reprise
+        // (.torfoil) et les liens mémorisés (.magnet) de Torfoil s'appellent
+        // ainsi. Sans ce filtre, chaque torrent ajoutait deux « fichiers sans
+        // torrent » à un compteur censé signaler exactement l'inverse.
+        if (name.empty() || name[0] == '.') continue;
 
         const std::string full = dir + "/" + name;
         struct stat st{};
@@ -135,11 +181,11 @@ void scan_directory(const std::string& dir, int depth, std::vector<LibraryEntry>
 
         if (S_ISDIR(st.st_mode)) {
             uint64_t split_size = 0;
-            if (!looks_like_split_file(full, split_size)) {
-                scan_directory(full, depth + 1, out);
-                continue;
+            if (looks_like_split_file(full, split_size)) {
+                item.size = split_size;
+            } else {
+                item.is_dir = true;
             }
-            item.size = split_size;
         } else {
             item.size = static_cast<uint64_t>(st.st_size);
         }
@@ -147,6 +193,34 @@ void scan_directory(const std::string& dir, int depth, std::vector<LibraryEntry>
         out.push_back(std::move(item));
     }
     ::closedir(handle);
+
+    // Dossiers d'abord, puis par nom : c'est l'ordre auquel tout explorateur a
+    // habitué, et celui qui met le contenu du torrent avant ses miettes.
+    std::sort(out.begin(), out.end(), [](const LibraryEntry& a, const LibraryEntry& b) {
+        if (a.is_dir != b.is_dir) return a.is_dir;
+        return a.name < b.name;
+    });
+}
+
+uint64_t dir_size(const std::string& dir, int depth) {
+    if (depth > 6) return 0;
+
+    DIR* handle = ::opendir(dir.c_str());
+    if (!handle) return 0;
+
+    uint64_t sum = 0;
+    while (dirent* entry = ::readdir(handle)) {
+        const std::string name = entry->d_name;
+        if (name == "." || name == "..") continue;
+
+        const std::string full = dir + "/" + name;
+        struct stat st{};
+        if (::stat(full.c_str(), &st) != 0) continue;
+        sum += S_ISDIR(st.st_mode) ? dir_size(full, depth + 1)
+                                   : static_cast<uint64_t>(st.st_size);
+    }
+    ::closedir(handle);
+    return sum;
 }
 
 }  // namespace
@@ -172,12 +246,14 @@ bool text_input(const char* header, const char* initial, std::string& out, size_
 
 bool App::init(std::string* err) {
     if (!render_.init(err)) return false;
+    icons_.attach(render_.raw());
 
     padConfigureInput(1, HidNpadStyleSet_NpadStandard);
     padInitializeDefault(&pad_);
 
     ::mkdir("sdmc:/torfoil", 0777);
     ::mkdir(kDownloadDir, 0777);
+    ::mkdir(kInboxDir, 0777);
 
     // Le fichier existe dès le premier lancement : on trouve où déposer ses
     // liens sans avoir à deviner le chemin ni lire la doc.
@@ -201,6 +277,10 @@ bool App::init(std::string* err) {
     set_language(settings_.effective_language());
     language_cursor_ = static_cast<int>(language());
     apply_settings();
+    // Ce qui a été déposé dans l'inbox depuis un PC part tout de suite : ouvrir
+    // un menu pour réclamer un fichier qu'on vient de copier là exprès n'a
+    // jamais aidé personne.
+    import_inbox();
     refresh_library();
     return true;
 }
@@ -215,6 +295,9 @@ void App::shutdown() {
 
     if (sleep_disabled_) appletSetAutoSleepDisabled(false);
     session_.stop();
+    // Les textures avant le rendu qui les a fabriquées : l'inverse les libère
+    // au travers d'un renderer déjà détruit.
+    icons_.clear();
     render_.shutdown();
 }
 
@@ -231,9 +314,139 @@ int& App::selection() {
 int App::item_count() const {
     switch (tab_) {
         case Tab::Torrents: return static_cast<int>(torrents_.size());
-        case Tab::Library: return static_cast<int>(library_.size());
         default: return 0;
     }
+}
+
+const bt::TorrentStatus* App::focused() const {
+    if (!overlay_hash_.empty()) {
+        for (const bt::TorrentStatus& t : torrents_) {
+            if (t.hash_hex == overlay_hash_) return &t;
+        }
+        return nullptr;
+    }
+    const int index = selection_[static_cast<int>(Tab::Torrents)];
+    if (index < 0 || index >= static_cast<int>(torrents_.size())) return nullptr;
+    return &torrents_[static_cast<size_t>(index)];
+}
+
+// Le menu ne propose que ce qui a un sens à cet instant. Une entrée grisée
+// oblige à essayer pour comprendre qu'elle est inerte ; une entrée absente ne
+// pose pas la question.
+void App::open_actions() {
+    const bt::TorrentStatus* t = focused();
+    if (!t) return;
+
+    overlay_hash_ = t->hash_hex;
+    actions_.clear();
+
+    if (!t->content_root.empty()) actions_.push_back(Str::ActOpenLocation);
+    actions_.push_back(Str::ActInfo);
+    if (t->state == bt::TorrentState::Checking) actions_.push_back(Str::ActSkipCheck);
+    actions_.push_back(t->state == bt::TorrentState::Paused ? Str::ActResume : Str::ActPause);
+    actions_.push_back(Str::ActRemoveKeep);
+    actions_.push_back(Str::ActRemoveDelete);
+
+    action_cursor_ = 0;
+    overlay_ = Overlay::Actions;
+}
+
+void App::open_files(const std::string& root, const std::string& title) {
+    files_title_ = title;
+
+    // Un torrent d'un seul fichier n'a pas de dossier à lui : sa « racine » EST
+    // le fichier. Lister un fichier ne donne rien, et l'écran s'ouvrait vide sur
+    // exactement le cas le plus courant. On montre alors le dossier qui le
+    // contient, curseur posé dessus.
+    struct stat st{};
+    const bool is_dir = ::stat(root.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+
+    std::string focus;
+    if (!is_dir) {
+        const size_t cut = root.rfind('/');
+        if (cut == std::string::npos) return;
+        focus = root.substr(cut + 1);
+        files_root_ = root.substr(0, cut);
+    } else {
+        files_root_ = root;
+    }
+
+    enter_dir(files_root_);
+
+    for (size_t i = 0; i < files_.size(); ++i) {
+        if (files_[i].name == focus) {
+            files_cursor_ = static_cast<int>(i);
+            break;
+        }
+    }
+
+    overlay_ = Overlay::Files;
+}
+
+void App::enter_dir(std::string dir) {
+    files_dir_ = std::move(dir);
+    files_.clear();
+    list_dir(files_dir_, files_);
+    files_cursor_ = 0;
+    files_scroll_ = 0;
+}
+
+void App::run_action() {
+    const bt::TorrentStatus* t = focused();
+    if (!t || actions_.empty()) {
+        overlay_ = Overlay::None;
+        return;
+    }
+
+    // Recopié : les commandes qui suivent peuvent faire disparaître le torrent
+    // du prochain instantané, et avec lui le pointeur.
+    const std::string hash = t->hash_hex;
+    const std::string root = t->content_root;
+    const std::string name = t->name;
+    const bool paused = t->state == bt::TorrentState::Paused;
+
+    switch (actions_[static_cast<size_t>(action_cursor_)]) {
+        case Str::ActOpenLocation:
+            open_files(root, name);
+            return;
+
+        case Str::ActInfo:
+            overlay_ = Overlay::Info;
+            return;
+
+        case Str::ActSkipCheck:
+            session_.skip_check(hash);
+            toast(tr(Str::ToastCheckSkipped));
+            break;
+
+        case Str::ActPause:
+        case Str::ActResume:
+            if (paused) {
+                session_.resume(hash);
+                toast(tr(Str::ToastResumed));
+            } else {
+                session_.pause(hash);
+                toast(tr(Str::ToastPaused));
+            }
+            break;
+
+        case Str::ActRemoveKeep:
+            session_.remove(hash, /*delete_files=*/false);
+            toast(tr(Str::ToastRemovedKept));
+            break;
+
+        case Str::ActRemoveDelete:
+            // Effacer des fichiers est le seul geste d'ici qui ne se rattrape
+            // pas : on demande, une fois, en nommant ce qui va disparaître.
+            overlay_ = Overlay::Confirm;
+            return;
+
+        default:
+            break;
+    }
+
+    overlay_ = Overlay::None;
+    overlay_hash_.clear();
 }
 
 // Appliqué au moteur ET écrit sur la carte dans le même geste : un réglage de
@@ -246,36 +459,46 @@ void App::apply_settings() {
     privacy.enable_pex = settings_.enable_pex;
     privacy.no_upload = settings_.no_upload;
     session_.set_privacy(privacy);
+    session_.set_max_active(settings_.max_active);
     settings_.save(kSettingsFile);
 }
 
+// Compte ce que plus aucun torrent ne revendique.
+//
+// C'est la seule chose que la liste de torrents ne peut pas dire d'elle-même :
+// retirer un torrent en gardant ses fichiers laisse parfois des dizaines de
+// gigaoctets dont plus rien, dans l'application, ne parle. Une ligne discrète
+// en pied d'écran vaut mieux qu'un onglet entier, mais l'absence totale de
+// mention vaut la carte pleine sans explication.
 void App::refresh_library() {
-    library_.clear();
-    scan_directory(kDownloadDir, 0, library_);
+    std::vector<LibraryEntry> top;
+    list_dir(kDownloadDir, top);
 
-    // Un fichier en cours de telechargement existe deja sur la carte, souvent a
-    // sa taille finale : les pieces arrivent dans le desordre et l'espace est
-    // reserve d'avance. Sa taille ne dit donc rien de son etat, et rien ne
-    // distingue a l'oeil un fichier complet d'un fichier plein de trous. Seul le
-    // moteur le sait - on le lui demande.
-    //
-    // La comparaison porte sur content_root, pas sur save_path : save_path est
-    // le dossier de téléchargement, le même pour tout le monde. Un seul torrent
-    // inachevé faisait donc passer TOUTE la carte pour « en cours ».
+    orphan_count_ = 0;
+    orphan_bytes_ = 0;
+
+    // Un torrent dont on ignore encore le nom ne revendique rien : tout ce qu'il
+    // a déjà écrit passerait pour orphelin. Le temps que les métadonnées
+    // arrivent, on se tait plutôt que d'annoncer des gigaoctets à la dérive qui
+    // appartiennent en réalité au téléchargement en cours.
     for (const bt::TorrentStatus& t : torrents_) {
-        const bool done = t.state == bt::TorrentState::Completed ||
-                          t.state == bt::TorrentState::Seeding;
-        if (done || t.content_root.empty()) continue;
-
-        for (LibraryEntry& item : library_) {
-            if (item.path.compare(0, t.content_root.size(), t.content_root) != 0) continue;
-            item.ready = false;
-            item.status = "en cours - " + std::to_string(static_cast<int>(t.progress * 100)) + "%";
-        }
+        if (t.content_root.empty()) return;
     }
 
-    std::sort(library_.begin(), library_.end(),
-              [](const LibraryEntry& a, const LibraryEntry& b) { return a.name < b.name; });
+    for (const LibraryEntry& item : top) {
+        bool claimed = false;
+        for (const bt::TorrentStatus& t : torrents_) {
+            if (!t.content_root.empty() && t.content_root == item.path) {
+                claimed = true;
+                break;
+            }
+        }
+        if (claimed) continue;
+
+        ++orphan_count_;
+        orphan_bytes_ += item.is_dir ? dir_size(item.path, 0) : item.size;
+    }
+
     last_library_scan_ms_ = util::now_ms();
 }
 
@@ -295,10 +518,37 @@ void App::add_magnet_flow() {
 // donc aussi un simple fichier texte, déposable depuis le PC ou par FTP : une
 // ligne = un lien. Les liens acceptés sont retirés du fichier, ceux qui ont
 // échoué y restent avec la raison en commentaire.
+// Les fichiers .torrent posés dans l'inbox, avalés puis retirés. C'est le même
+// dossier que celui où le téléphone dépose ses envois : un fichier copié depuis
+// un PC et un fichier reçu par Wi-Fi n'ont aucune raison de suivre deux chemins
+// différents.
+int App::import_inbox() {
+    std::vector<LibraryEntry> entries;
+    list_dir(kInboxDir, entries);
+
+    int added = 0;
+    for (const LibraryEntry& item : entries) {
+        if (item.is_dir || item.kind != "TORRENT") continue;
+        std::string err;
+        if (session_.add_torrent_file(item.path, &err)) {
+            ++added;
+            std::remove(item.path.c_str());
+        }
+    }
+    return added;
+}
+
 void App::import_magnets_file() {
+    const int from_inbox = import_inbox();
+
     std::FILE* fp = std::fopen(kMagnetsFile, "rb");
     if (!fp) {
-        toast(tr(Str::ToastNoMagnetsFile), true);
+        if (from_inbox > 0) {
+            toast(std::to_string(from_inbox) +
+                  (from_inbox > 1 ? " torrents ajoutés" : " torrent ajouté"));
+        } else {
+            toast(tr(Str::ToastNoMagnetsFile), true);
+        }
         return;
     }
 
@@ -313,7 +563,7 @@ void App::import_magnets_file() {
     }
     std::fclose(fp);
 
-    int added = 0;
+    int added = from_inbox;
     std::vector<std::string> leftovers;
     for (const std::string& line : lines) {
         if (line.empty() || line[0] == '#') continue;
@@ -376,6 +626,83 @@ void App::handle_input(uint64_t now_ms) {
         return;
     }
 
+    // Une incrustation prend tout : tant qu'elle est ouverte, les gâchettes ne
+    // changent pas d'onglet et le curseur de la liste ne bouge pas sous elle.
+    if (overlay_ != Overlay::None) {
+        const bool next = (down & (HidNpadButton_Down | HidNpadButton_StickLDown)) != 0;
+        const bool prev = (down & (HidNpadButton_Up | HidNpadButton_StickLUp)) != 0;
+
+        switch (overlay_) {
+            case Overlay::Actions: {
+                const int count = static_cast<int>(actions_.size());
+                if (count > 0 && next) action_cursor_ = (action_cursor_ + 1) % count;
+                if (count > 0 && prev) action_cursor_ = (action_cursor_ + count - 1) % count;
+                if (down & HidNpadButton_A) run_action();
+                if (down & HidNpadButton_B) {
+                    overlay_ = Overlay::None;
+                    overlay_hash_.clear();
+                }
+                break;
+            }
+
+            case Overlay::Info:
+                if (down & (HidNpadButton_B | HidNpadButton_A)) {
+                    overlay_ = Overlay::None;
+                    overlay_hash_.clear();
+                }
+                break;
+
+            case Overlay::Files: {
+                const bool has_up = files_dir_ != files_root_;
+                const int count = static_cast<int>(files_.size()) + (has_up ? 1 : 0);
+                if (count > 0 && next) files_cursor_ = (files_cursor_ + 1) % count;
+                if (count > 0 && prev) files_cursor_ = (files_cursor_ + count - 1) % count;
+
+                if (down & HidNpadButton_A) {
+                    if (has_up && files_cursor_ == 0) {
+                        const size_t cut = files_dir_.rfind('/');
+                        if (cut != std::string::npos) enter_dir(files_dir_.substr(0, cut));
+                    } else {
+                        const int index = files_cursor_ - (has_up ? 1 : 0);
+                        if (index >= 0 && index < static_cast<int>(files_.size()) &&
+                            files_[static_cast<size_t>(index)].is_dir) {
+                            enter_dir(files_[static_cast<size_t>(index)].path);
+                        }
+                    }
+                }
+                if (down & HidNpadButton_B) {
+                    // B remonte tant qu'il y a où remonter, et ne referme qu'à
+                    // la racine : sortir d'un coup depuis trois niveaux plus bas
+                    // oblige à tout reparcourir pour revenir.
+                    if (has_up) {
+                        const size_t cut = files_dir_.rfind('/');
+                        if (cut != std::string::npos) enter_dir(files_dir_.substr(0, cut));
+                    } else {
+                        overlay_ = Overlay::None;
+                        overlay_hash_.clear();
+                    }
+                }
+                break;
+            }
+
+            case Overlay::Confirm:
+                if (down & HidNpadButton_A) {
+                    if (const bt::TorrentStatus* t = focused()) {
+                        session_.remove(t->hash_hex, /*delete_files=*/true);
+                        toast(tr(Str::ToastRemovedDeleted));
+                    }
+                    overlay_ = Overlay::None;
+                    overlay_hash_.clear();
+                }
+                if (down & HidNpadButton_B) overlay_ = Overlay::Actions;
+                break;
+
+            default:
+                break;
+        }
+        return;
+    }
+
     if (down & HidNpadButton_Plus) {
         running_ = false;
         return;
@@ -407,37 +734,18 @@ void App::handle_input(uint64_t now_ms) {
         case Tab::Torrents:
             if (down & HidNpadButton_X) add_magnet_flow();
             if (down & HidNpadButton_ZL) import_magnets_file();
-            if ((down & HidNpadButton_Y) && !torrents_.empty()) {
-                const bt::TorrentStatus& t = torrents_[static_cast<size_t>(selection())];
-                if (t.state == bt::TorrentState::Paused) {
-                    session_.resume(t.hash_hex);
-                    toast(tr(Str::ToastResumed));
-                } else {
-                    session_.pause(t.hash_hex);
-                    toast(tr(Str::ToastPaused));
-                }
-            }
-            if ((down & HidNpadButton_ZR) && !torrents_.empty()) {
-                const bt::TorrentStatus& t = torrents_[static_cast<size_t>(selection())];
-                session_.remove(t.hash_hex, /*delete_files=*/false);
-                toast(tr(Str::ToastRemovedKept));
-            }
-            // Relire 35 Go prend plus d'une heure. Quand elle ne sert à rien —
-            // le cas courant — il faut pouvoir la couper sans tuer l'appli.
-            if ((down & HidNpadButton_B) && !torrents_.empty()) {
-                const bt::TorrentStatus& t = torrents_[static_cast<size_t>(selection())];
-                if (t.state == bt::TorrentState::Checking) {
-                    session_.skip_check(t.hash_hex);
-                    toast(tr(Str::ToastCheckSkipped));
-                }
+            // Tout ce qui agit sur un torrent passe par le menu : la liste ne
+            // sert qu'à montrer, et aucune touche ne supprime quoi que ce soit
+            // au premier appui.
+            if ((down & HidNpadButton_A) && !torrents_.empty()) open_actions();
+            if ((down & HidNpadButton_ZR) && orphan_count_ > 0) {
+                refresh_library();
+                open_files(kDownloadDir, tr(Str::OrphanTitle));
             }
             break;
 
-        case Tab::Library:
-            if (down & HidNpadButton_X) {
-                refresh_library();
-                toast(tr(Str::LibraryRescanned));
-            }
+        case Tab::Downloads:
+            if (down & HidNpadButton_X) add_magnet_flow();
             break;
 
         case Tab::Phone:
@@ -514,8 +822,9 @@ void App::handle_input(uint64_t now_ms) {
             break;
 
         default: {
-            // Ligne 0 : la langue. Les bascules suivent, décalées d'un cran.
-            const int count = static_cast<int>(toggles().size()) + 1;
+            // Ligne 0 : la langue, ligne 1 : le nombre de téléchargements
+            // simultanés. Les bascules suivent, décalées de deux crans.
+            const int count = static_cast<int>(toggles().size()) + 2;
             if (down & HidNpadButton_Down) settings_cursor_ = (settings_cursor_ + 1) % count;
             if (down & HidNpadButton_Up) {
                 settings_cursor_ = (settings_cursor_ + count - 1) % count;
@@ -536,8 +845,18 @@ void App::handle_input(uint64_t now_ms) {
                     settings_.language = code_of(next);
                     apply_settings();
                 }
+            } else if (settings_cursor_ == 1) {
+                // 0 à 8, et 0 signifie « sans limite ». Le tour complet est
+                // court, ←→ et A font donc la même chose sans gêner.
+                int step = 0;
+                if (down & (HidNpadButton_A | HidNpadButton_Right)) step = 1;
+                if (down & HidNpadButton_Left) step = 8;
+                if (step != 0) {
+                    settings_.max_active = (settings_.max_active + step) % 9;
+                    apply_settings();
+                }
             } else if (down & HidNpadButton_A) {
-                const Toggle& t = toggles()[static_cast<size_t>(settings_cursor_ - 1)];
+                const Toggle& t = toggles()[static_cast<size_t>(settings_cursor_ - 2)];
                 bool& value = settings_.*(t.field);
                 value = !value;
                 apply_settings();
@@ -630,116 +949,399 @@ void App::draw_empty(const std::string& title, const std::string& hint) {
     render_.text_centered(FontSize::Body, hint, cx, kContentTop + 210, palette::kTextDim);
 }
 
+// Une seule liste, et elle ne montre que des torrents.
+//
+// Les fichiers ont disparu d'ici volontairement : mélangés aux torrents, ils
+// doublaient chaque entrée et donnaient à croire qu'il y avait deux fois plus
+// de choses qu'en réalité. Ce que la carte contient se regarde depuis le
+// torrent qui l'a écrit, par le menu d'actions.
 void App::draw_torrents() {
+    const bool has_orphans = orphan_count_ > 0;
+    const int footer = has_orphans ? 30 : 0;
+
     if (torrents_.empty()) {
         draw_empty(tr(Str::NoTorrents),
                    std::string(tr(Str::HowMagnet)) + "  ·  " + tr(Str::HowMagnetsFile));
-        return;
+    } else {
+        const int room = kContentBottom - kContentTop - 20 - footer;
+        const int visible = room / (kRowHeight + kRowGap);
+        if (selection() < scroll_) scroll_ = selection();
+        if (selection() >= scroll_ + visible) scroll_ = selection() - visible + 1;
+
+        const int row_w = Renderer::kWidth - 2 * kMargin;
+        int y = kContentTop + 12;
+
+        for (int i = scroll_; i < static_cast<int>(torrents_.size()) && i < scroll_ + visible;
+             ++i) {
+            const bt::TorrentStatus& t = torrents_[static_cast<size_t>(i)];
+            const bool active = i == selection();
+            const Color accent = state_color(t.state);
+
+            render_.rounded_rect(kMargin, y, row_w, kRowHeight, 10,
+                                 active ? palette::kSelected : palette::kSurface);
+
+            icons_.draw(torrent_icon(t), kMargin + 14, y + (kRowHeight - kIconSize) / 2,
+                        kIconSize, tint(active ? accent : palette::kTextDim));
+
+            // Réservé à droite : le pourcentage, qui est la seule colonne que
+            // l'œil balaie verticalement. Le nom s'arrête avant lui plutôt que
+            // de passer dessous.
+            const int pct_w = 96;
+            const int text_x = kMargin + 14 + kIconSize + 16;
+            const int text_w = row_w - (text_x - kMargin) - pct_w - 20;
+
+            render_.text_clipped(FontSize::Body, t.name, text_x, y + 8, text_w, palette::kText);
+
+            char detail[256];
+            if (t.state == bt::TorrentState::Downloading) {
+                std::snprintf(detail, sizeof(detail), "%s · %s · ↓ %s · %u %s",
+                              tr(state_key(t.state)),
+                              t.total_size ? util::human_size(t.total_size).c_str() : "?",
+                              util::human_rate(t.rate_down).c_str(), t.peers_connected,
+                              tr(Str::InfoPeers));
+            } else {
+                std::snprintf(detail, sizeof(detail), "%s · %s", tr(state_key(t.state)),
+                              t.total_size ? util::human_size(t.total_size).c_str() : "?");
+            }
+            render_.text_clipped(FontSize::Small, detail, text_x, y + 34, text_w,
+                                 palette::kTextDim);
+
+            char pct[16];
+            std::snprintf(pct, sizeof(pct), "%.0f %%", t.progress * 100.0f);
+            const int right = kMargin + row_w - 18;
+            render_.text(FontSize::Body, pct, right - render_.text_width(FontSize::Body, pct),
+                         y + 8, accent);
+            render_.progress_bar(right - pct_w + 8, y + 40, pct_w - 8, 6, t.progress, accent);
+
+            y += kRowHeight + kRowGap;
+        }
     }
 
-    const int visible = (kContentBottom - kContentTop - 20) / (kRowHeight + kRowGap);
-    if (selection() < scroll_) scroll_ = selection();
-    if (selection() >= scroll_ + visible) scroll_ = selection() - visible + 1;
-
-    int y = kContentTop + 14;
-    for (int i = scroll_; i < static_cast<int>(torrents_.size()) && i < scroll_ + visible; ++i) {
-        const bt::TorrentStatus& t = torrents_[static_cast<size_t>(i)];
-        const bool active = i == selection();
-
-        render_.rounded_rect(kMargin, y, Renderer::kWidth - 2 * kMargin, kRowHeight, 12,
-                             active ? palette::kSelected : palette::kSurface);
-
-        const int text_w = Renderer::kWidth - 2 * kMargin - 260;
-        render_.text_clipped(FontSize::Body, t.name, kMargin + 20, y + 12, text_w,
-                             palette::kText);
-
-        // Le nombre de pairs qui nous étranglent est LA donnée qui explique un
-        // débit décevant : un pair connecté qui étrangle ne sert rien. Sans elle
-        // on ne peut que constater la lenteur sans savoir d'où elle vient.
-        char peers[64];
-        if (t.peers_choking > 0 && t.peers_connected > 0) {
-            std::snprintf(peers, sizeof(peers), "%u pairs (%u refusent)", t.peers_connected,
-                          t.peers_choking);
-        } else {
-            std::snprintf(peers, sizeof(peers), "%u pairs", t.peers_connected);
-        }
-
-        char detail[256];
-        std::snprintf(detail, sizeof(detail), "%s · %s · %s · ↓ %s",
-                      tr(state_key(t.state)),
-                      t.total_size ? util::human_size(t.total_size).c_str() : "taille inconnue",
-                      peers, util::human_rate(t.rate_down).c_str());
-        render_.text_clipped(FontSize::Small, detail, kMargin + 20, y + 46, text_w,
-                             palette::kTextDim);
-
-        render_.progress_bar(kMargin + 20, y + 74, text_w, 8, t.progress, state_color(t.state));
-
-        // Colonne de droite : pourcentage et temps restant.
-        char pct[16];
-        std::snprintf(pct, sizeof(pct), "%.0f %%", t.progress * 100.0f);
-        const int right = Renderer::kWidth - kMargin - 24;
-        render_.text(FontSize::Title, pct, right - render_.text_width(FontSize::Title, pct),
-                     y + 18, state_color(t.state));
-
-        if (t.eta_s > 0 && t.state == bt::TorrentState::Downloading) {
-            const std::string eta = util::human_duration(t.eta_s);
-            render_.text(FontSize::Small, eta, right - render_.text_width(FontSize::Small, eta),
-                         y + 60, palette::kTextDim);
-        }
-
-        y += kRowHeight + kRowGap;
-    }
-
-    if (!torrents_.empty() && !torrents_[static_cast<size_t>(selection())].message.empty()) {
+    // Rien sous une incrustation : le pied d'écran affleurait sous le coin
+    // arrondi du panneau, à moitié lisible.
+    if (has_orphans && overlay_ == Overlay::None) {
+        // Discret, et seulement quand il y a lieu. Sans cette ligne, retirer un
+        // torrent « en gardant les fichiers » fait disparaître toute mention de
+        // vingt gigaoctets qui restent bel et bien sur la carte.
         render_.text_clipped(FontSize::Small,
-                             torrents_[static_cast<size_t>(selection())].message, kMargin,
-                             kContentBottom - 26, Renderer::kWidth - 2 * kMargin,
-                             palette::kWarn);
+                             trf(Str::OrphanFooter, orphan_count_,
+                                 util::human_size(orphan_bytes_).c_str()),
+                             kMargin, kContentBottom - 26, Renderer::kWidth - 2 * kMargin,
+                             palette::kTextDim);
     }
 }
 
-void App::draw_library() {
-    if (library_.empty()) {
-        draw_empty(tr(Str::LibraryEmpty),
-                   tr(Str::LibraryEmptyHintFiles));
+// L'onglet qui répond à « ça avance ? ». Le torrent en cours occupe le haut,
+// en grand ; ceux qui attendent leur tour sont listés dessous, dans l'ordre où
+// ils partiront.
+void App::draw_downloads() {
+    std::vector<const bt::TorrentStatus*> active;
+    std::vector<const bt::TorrentStatus*> queued;
+    for (const bt::TorrentStatus& t : torrents_) {
+        if (t.state == bt::TorrentState::Downloading ||
+            t.state == bt::TorrentState::FetchingMetadata ||
+            t.state == bt::TorrentState::Checking) {
+            active.push_back(&t);
+        } else if (t.state == bt::TorrentState::Queued) {
+            queued.push_back(&t);
+        }
+    }
+
+    if (active.empty() && queued.empty()) {
+        draw_empty(tr(Str::DlNothing), tr(Str::DlNothingHint));
         return;
     }
 
-    const int row_h = 68;
-    const int visible = (kContentBottom - kContentTop - 20) / (row_h + 8);
-    if (selection() < scroll_) scroll_ = selection();
-    if (selection() >= scroll_ + visible) scroll_ = selection() - visible + 1;
+    const int width = Renderer::kWidth - 2 * kMargin;
+    int y = kContentTop + 10;
 
-    int y = kContentTop + 14;
-    for (int i = scroll_; i < static_cast<int>(library_.size()) && i < scroll_ + visible; ++i) {
-        const LibraryEntry& item = library_[static_cast<size_t>(i)];
-        const bool active = i == selection();
+    render_.section_header(tr(Str::DlActive), kMargin, y, palette::kAccent);
+    y += 30;
 
-        render_.rounded_rect(kMargin, y, Renderer::kWidth - 2 * kMargin, row_h, 12,
-                             active ? palette::kSelected : palette::kSurface);
+    if (active.empty()) {
+        render_.text(FontSize::Small, tr(Str::DlNothing), kMargin + 4, y, palette::kTextDim);
+        y += 30;
+    }
 
-        // Étiquette de type à gauche. Un fichier sans extension n'en reçoit pas.
-        int badge_w = 0;
-        if (!item.kind.empty()) {
-            badge_w = render_.text_width(FontSize::Small, item.kind) + 22;
-            render_.rounded_rect(kMargin + 16, y + 20, badge_w, 28, 8, palette::kAccentDim);
-            render_.text(FontSize::Small, item.kind, kMargin + 27, y + 23, palette::kText);
-            badge_w += 16;
+    // Deux cartes au plus : au-delà, la mise en avant ne veut plus rien dire et
+    // la file en dessous devient illisible.
+    for (size_t i = 0; i < active.size() && i < 2; ++i) {
+        const bt::TorrentStatus& t = *active[i];
+        constexpr int card_h = 118;
+        render_.rounded_rect(kMargin, y, width, card_h, 12, palette::kSurface);
+
+        icons_.draw(torrent_icon(t), kMargin + 18, y + 16, 44, tint(palette::kAccent));
+
+        const int text_x = kMargin + 18 + 44 + 18;
+        render_.text_clipped(FontSize::Body, t.name, text_x, y + 14, width - (text_x - kMargin) -
+                                                                          160,
+                             palette::kText);
+
+        char pct[16];
+        std::snprintf(pct, sizeof(pct), "%.0f %%", t.progress * 100.0f);
+        render_.text(FontSize::Title, pct,
+                     kMargin + width - 18 - render_.text_width(FontSize::Title, pct), y + 12,
+                     palette::kAccent);
+
+        render_.progress_bar(text_x, y + 52, width - (text_x - kMargin) - 18, 10, t.progress,
+                             state_color(t.state));
+
+        char line[320];
+        std::snprintf(line, sizeof(line), "%s · ↓ %s · ↑ %s · %u %s · %u %s",
+                      tr(state_key(t.state)), util::human_rate(t.rate_down).c_str(),
+                      util::human_rate(t.rate_up).c_str(), t.peers_connected,
+                      tr(Str::InfoPeers), t.blocks_in_flight, tr(Str::InfoBlocksInFlight));
+        render_.text_clipped(FontSize::Small, line, text_x, y + 72, width - (text_x - kMargin) - 18,
+                             palette::kTextDim);
+
+        std::string tail = t.total_size ? util::human_size(t.downloaded) + " / " +
+                                              util::human_size(t.total_size)
+                                        : std::string();
+        if (t.eta_s > 0 && t.state == bt::TorrentState::Downloading) {
+            tail += "   ·   " + std::string(tr(Str::InfoEta)) + " " +
+                    util::human_duration(t.eta_s);
+        }
+        render_.text_clipped(FontSize::Small, tail, text_x, y + 94,
+                             width - (text_x - kMargin) - 18, palette::kTextDim);
+
+        y += card_h + 10;
+    }
+
+    y += 6;
+    render_.section_header(tr(Str::DlQueue), kMargin, y, palette::kTextDim);
+    y += 30;
+
+    if (queued.empty()) {
+        render_.text(FontSize::Small, tr(Str::DlQueueEmpty), kMargin + 4, y, palette::kTextDim);
+        return;
+    }
+
+    constexpr int q_h = 44;
+    for (size_t i = 0; i < queued.size(); ++i) {
+        if (y + q_h > kContentBottom - 4) break;
+        const bt::TorrentStatus& t = *queued[i];
+
+        render_.rounded_rect(kMargin, y, width, q_h - 4, 8, palette::kSurface);
+
+        // Le rang plutôt qu'une icône : la question posée à cet écran est
+        // « dans combien de temps mon tour ? », pas « quel type de fichier ».
+        const std::string rank = std::to_string(i + 1);
+        render_.text(FontSize::Small, rank, kMargin + 16, y + 10, palette::kAccent);
+        render_.text_clipped(FontSize::Body, t.name, kMargin + 46, y + 6, width - 46 - 140,
+                             palette::kTextDim);
+
+        const std::string size = t.total_size ? util::human_size(t.total_size) : std::string("?");
+        render_.text(FontSize::Small, size,
+                     kMargin + width - 18 - render_.text_width(FontSize::Small, size), y + 10,
+                     palette::kTextDim);
+        y += q_h;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Incrustations
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Voile sombre : ce qui est derrière reste visible mais cesse d'être lisible,
+// donc plus personne n'essaie d'y agir.
+void dim_background(Renderer& r) {
+    r.rect(0, 0, Renderer::kWidth, Renderer::kHeight, Color{0, 0, 0, 170});
+}
+
+}  // namespace
+
+void App::draw_actions() {
+    dim_background(render_);
+
+    const bt::TorrentStatus* t = focused();
+    if (!t) return;
+
+    const int w = 620;
+    const int row_h = 52;
+    const int h = 96 + static_cast<int>(actions_.size()) * row_h + 16;
+    const int x = (Renderer::kWidth - w) / 2;
+    const int y = (Renderer::kHeight - h) / 2;
+
+    render_.rounded_rect(x, y, w, h, 16, palette::kSurfaceAlt);
+
+    icons_.draw(torrent_icon(*t), x + 24, y + 20, 32, tint(palette::kAccent));
+    render_.text_clipped(FontSize::Body, t->name, x + 24 + 32 + 16, y + 22, w - 96,
+                         palette::kText);
+    render_.line(x + 20, y + 68, x + w - 20, y + 68, palette::kSurface);
+
+    int ry = y + 84;
+    for (size_t i = 0; i < actions_.size(); ++i) {
+        const bool focus = static_cast<int>(i) == action_cursor_;
+        const bool destructive = actions_[i] == Str::ActRemoveDelete;
+
+        if (focus) render_.rounded_rect(x + 16, ry, w - 32, row_h - 6, 8, palette::kSelected);
+        render_.text(FontSize::Body, tr(actions_[i]), x + 34, ry + 8,
+                     destructive ? palette::kError : (focus ? palette::kText : palette::kTextDim));
+        ry += row_h;
+    }
+}
+
+void App::draw_info() {
+    dim_background(render_);
+
+    const bt::TorrentStatus* t = focused();
+    if (!t) return;
+
+    const int w = 900;
+    const int h = 500;
+    const int x = (Renderer::kWidth - w) / 2;
+    const int y = (Renderer::kHeight - h) / 2;
+
+    render_.rounded_rect(x, y, w, h, 16, palette::kSurfaceAlt);
+
+    icons_.draw(torrent_icon(*t), x + 24, y + 20, 32, tint(palette::kAccent));
+    render_.text_clipped(FontSize::Body, t->name, x + 72, y + 22, w - 96, palette::kText);
+    render_.line(x + 20, y + 66, x + w - 20, y + 66, palette::kSurface);
+
+    const int key_x = x + 28;
+    const int val_x = x + 260;
+    const int val_w = w - (val_x - x) - 28;
+    int ry = y + 82;
+
+    auto row = [&](const char* key, const std::string& value, Color color = palette::kText) {
+        if (ry + 26 > y + h - 12) return;
+        render_.text(FontSize::Small, key, key_x, ry, palette::kTextDim);
+        render_.text_clipped(FontSize::Small, value, val_x, ry, val_w, color);
+        ry += 26;
+    };
+
+    char buf[256];
+
+    row(tr(Str::InfoState), tr(state_key(t->state)), state_color(t->state));
+
+    std::snprintf(buf, sizeof(buf), "%.1f %%  (%s / %s)", t->progress * 100.0f,
+                  util::human_size(t->downloaded).c_str(),
+                  util::human_size(t->total_size).c_str());
+    row(tr(Str::InfoProgress), buf);
+
+    row(tr(Str::InfoSize), t->total_size ? util::human_size(t->total_size) : std::string("?"));
+
+    if (t->pieces_total > 0) {
+        std::snprintf(buf, sizeof(buf), "%u / %u", t->pieces_done, t->pieces_total);
+        row(tr(Str::InfoPieces), buf);
+        row(tr(Str::InfoPieceLen), util::human_size(t->piece_length));
+    }
+    if (t->file_count > 0) row(tr(Str::InfoFiles), std::to_string(t->file_count));
+
+    // Une pièce rejetée n'est pas anodine : c'est du volume téléchargé deux
+    // fois. Zéro se tait, le reste se dit.
+    if (t->pieces_rejected > 0) {
+        row(tr(Str::InfoRejected), std::to_string(t->pieces_rejected), palette::kWarn);
+    }
+
+    // Le nombre de pairs qui nous étranglent est LA donnée qui explique un
+    // débit décevant : un pair connecté qui refuse de servir ne sert à rien.
+    if (t->peers_choking > 0) {
+        std::snprintf(buf, sizeof(buf), "%u / %u  (%u ↛)", t->peers_connected, t->peers_known,
+                      t->peers_choking);
+    } else {
+        std::snprintf(buf, sizeof(buf), "%u / %u", t->peers_connected, t->peers_known);
+    }
+    row(tr(Str::InfoPeers), buf);
+
+    std::snprintf(buf, sizeof(buf), "↓ %s   ↑ %s", util::human_rate(t->rate_down).c_str(),
+                  util::human_rate(t->rate_up).c_str());
+    row(tr(Str::InfoRates), buf);
+
+    if (t->blocks_in_flight > 0) {
+        row(tr(Str::InfoBlocksInFlight), std::to_string(t->blocks_in_flight));
+    }
+    if (t->eta_s > 0) row(tr(Str::InfoEta), util::human_duration(t->eta_s));
+
+    row(tr(Str::InfoPrivate), tr(t->is_private ? Str::InfoYes : Str::InfoNo));
+
+    if (!t->trackers.empty()) {
+        row(tr(Str::InfoTrackers), t->trackers.front());
+        for (size_t i = 1; i < t->trackers.size() && i < 3; ++i) row("", t->trackers[i]);
+    }
+
+    row(tr(Str::InfoLocation), t->content_root.empty() ? t->save_path : t->content_root);
+    row(tr(Str::InfoHash), t->hash_hex);
+
+    if (!t->message.empty()) row("", t->message, palette::kWarn);
+}
+
+void App::draw_files() {
+    dim_background(render_);
+
+    const int w = Renderer::kWidth - 2 * kMargin;
+    const int h = Renderer::kHeight - 120;
+    const int x = kMargin;
+    const int y = 60;
+
+    render_.rounded_rect(x, y, w, h, 16, palette::kSurfaceAlt);
+    render_.text_clipped(FontSize::Body, files_title_, x + 24, y + 18, w - 48, palette::kText);
+    render_.text_clipped(FontSize::Small, files_dir_, x + 24, y + 48, w - 48, palette::kTextDim);
+    render_.line(x + 20, y + 76, x + w - 20, y + 76, palette::kSurface);
+
+    const bool has_up = files_dir_ != files_root_;
+    const int count = static_cast<int>(files_.size()) + (has_up ? 1 : 0);
+    if (count == 0) {
+        render_.text_centered(FontSize::Body, tr(Str::FilesEmpty), Renderer::kWidth / 2,
+                              y + h / 2, palette::kTextDim);
+        return;
+    }
+
+    constexpr int row_h = 48;
+    const int list_top = y + 88;
+    const int visible = (y + h - 12 - list_top) / row_h;
+    if (files_cursor_ < files_scroll_) files_scroll_ = files_cursor_;
+    if (files_cursor_ >= files_scroll_ + visible) files_scroll_ = files_cursor_ - visible + 1;
+
+    int ry = list_top;
+    for (int i = files_scroll_; i < count && i < files_scroll_ + visible; ++i) {
+        const bool focus = i == files_cursor_;
+        if (focus) render_.rounded_rect(x + 16, ry, w - 32, row_h - 4, 8, palette::kSelected);
+
+        if (has_up && i == 0) {
+            icons_.draw(IconKind::Folder, x + 28, ry + 7, 28, tint(palette::kTextDim));
+            render_.text(FontSize::Body, tr(Str::FilesUp), x + 70, ry + 6, palette::kTextDim);
+            ry += row_h;
+            continue;
         }
 
-        // Un fichier encore en cours se voit au premier coup d'œil : le nom est
-        // grisé et l'avancement remplace la taille, qui ne veut rien dire tant
-        // que le téléchargement n'est pas fini.
-        render_.text_clipped(FontSize::Body, item.name, kMargin + 16 + badge_w, y + 8,
-                             Renderer::kWidth - 2 * kMargin - badge_w - 220,
-                             item.ready ? palette::kText : palette::kTextDim);
+        const LibraryEntry& item = files_[static_cast<size_t>(i - (has_up ? 1 : 0))];
+        icons_.draw(item.is_dir ? IconKind::Folder : icon_kind_for(item.name), x + 28, ry + 7, 28,
+                    tint(focus ? palette::kAccent : palette::kTextDim));
+        render_.text_clipped(FontSize::Body, item.name, x + 70, ry + 6, w - 70 - 180,
+                             focus ? palette::kText : palette::kTextDim);
 
-        const std::string detail = item.ready ? util::human_size(item.size) : item.status;
-        render_.text(FontSize::Small, detail, kMargin + 16 + badge_w, y + 38,
-                     palette::kTextDim);
-
-        y += row_h + 8;
+        if (!item.is_dir) {
+            const std::string size = util::human_size(item.size);
+            render_.text(FontSize::Small, size,
+                         x + w - 24 - render_.text_width(FontSize::Small, size), ry + 10,
+                         palette::kTextDim);
+        }
+        ry += row_h;
     }
+}
+
+void App::draw_confirm() {
+    dim_background(render_);
+
+    const bt::TorrentStatus* t = focused();
+    const int w = 760;
+    const int h = 230;
+    const int x = (Renderer::kWidth - w) / 2;
+    const int y = (Renderer::kHeight - h) / 2;
+
+    render_.rounded_rect(x, y, w, h, 16, palette::kSurfaceAlt);
+    render_.text_centered(FontSize::Title, tr(Str::ConfirmDeleteTitle), Renderer::kWidth / 2,
+                          y + 30, palette::kError);
+    render_.text_clipped(FontSize::Body,
+                         trf(Str::ConfirmDeleteBody, t ? t->name.c_str() : ""), x + 30, y + 96,
+                         w - 60, palette::kText);
+    render_.text_centered(FontSize::Small,
+                          std::string("A · ") + tr(Str::HintConfirm) + "        B · " +
+                              tr(Str::HintCancel),
+                          Renderer::kWidth / 2, y + h - 46, palette::kTextDim);
 }
 
 // Deux etapes, deux codes QR, comme l'Album de la console : le premier fait
@@ -951,11 +1553,29 @@ void App::draw_settings() {
         y += row_h;
     }
 
+    // Le nombre de téléchargements simultanés juste après : c'est le réglage
+    // qui explique pourquoi un torrent ajouté reste « en attente ».
+    {
+        const bool focused = settings_cursor_ == 1;
+        render_.rounded_rect(left, y, left_w, row_h - 8, 10,
+                             focused ? palette::kSelected : palette::kSurface);
+        render_.text(FontSize::Body, tr(Str::FieldMaxActive), left + 18, y + 6, palette::kText);
+        render_.text_clipped(FontSize::Small, tr(Str::MaxActiveEffect), left + 18, y + 32,
+                             left_w - 36 - 90, palette::kTextDim);
+        const std::string value = settings_.max_active == 0
+                                      ? std::string(tr(Str::MaxActiveUnlimited))
+                                      : std::to_string(settings_.max_active);
+        render_.text(FontSize::Body, value,
+                     left + left_w - 18 - render_.text_width(FontSize::Body, value), y + 16,
+                     focused ? palette::kAccent : palette::kText);
+        y += row_h;
+    }
+
     for (size_t i = 0; i < list.size(); ++i) {
         const Toggle& t = list[i];
         const bool raw = settings_.*(t.field);
         const bool checked = t.inverted ? !raw : raw;
-        const bool focused = static_cast<int>(i) + 1 == settings_cursor_;
+        const bool focused = static_cast<int>(i) + 2 == settings_cursor_;
 
         // Seul le fond change avec le focus : rien ne bouge, donc l'écran n'a
         // pas à être relu après chaque appui.
@@ -985,7 +1605,8 @@ void App::draw_settings() {
     };
     info(tr(Str::FieldTransport), session_.transport_name());
     info(tr(Str::FieldActiveTorrents), std::to_string(torrents_.size()));
-    info("Point d\'accès", phone_.step() == Phone::Step::Off ? "fermé" : phone_.ap().ssid());
+    info(tr(Str::FieldAccessPoint),
+         phone_.step() == Phone::Step::Off ? tr(Str::AccessPointOff) : phone_.ap().ssid());
 
     ry += 20;
     render_.section_header(tr(Str::SecSelfTest), right, ry, palette::kAccent);
@@ -1078,19 +1699,21 @@ void App::draw(uint64_t now_ms) {
     draw_tabs();
 
     switch (tab_) {
-        case Tab::Torrents:
+        case Tab::Torrents: {
             draw_torrents();
-            draw_hints({{"X", tr(Str::HintPasteMagnet)},
-                        {"ZL", tr(Str::HintMagnetsFile)},
-                        {"Y", tr(Str::HintPause)},
-                        {"B", tr(Str::HintSkipCheck)},
-                        {"ZR", tr(Str::HintRemove)},
-                        {"L/R", tr(Str::HintTab)},
-                        {"+", tr(Str::HintQuit)}});
+            std::vector<std::pair<std::string, std::string>> hints = {
+                {"A", tr(Str::HintActions)},
+                {"X", tr(Str::HintPasteMagnet)},
+                {"ZL", tr(Str::HintMagnetsFile)}};
+            if (orphan_count_ > 0) hints.push_back({"ZR", tr(Str::HintOrphans)});
+            hints.push_back({"L/R", tr(Str::HintTab)});
+            hints.push_back({"+", tr(Str::HintQuit)});
+            draw_hints(hints);
             break;
-        case Tab::Library:
-            draw_library();
-            draw_hints({{"X", tr(Str::HintRescan)},
+        }
+        case Tab::Downloads:
+            draw_downloads();
+            draw_hints({{"X", tr(Str::HintPasteMagnet)},
                         {"L/R", tr(Str::HintTab)},
                         {"+", tr(Str::HintQuit)}});
             break;
@@ -1119,6 +1742,28 @@ void App::draw(uint64_t now_ms) {
                         {"Y", tr(Str::HintSelfTest)},
                         {"L/R", tr(Str::HintTab)},
                         {"+", tr(Str::HintQuit)}});
+            break;
+    }
+
+    // Les incrustations passent après les onglets et avant le message éphémère :
+    // un toast déclenché depuis le menu doit rester lisible.
+    switch (overlay_) {
+        case Overlay::Actions:
+            draw_actions();
+            draw_hints({{"A", tr(Str::HintChoose)}, {"B", tr(Str::HintBack)}});
+            break;
+        case Overlay::Info:
+            draw_info();
+            draw_hints({{"B", tr(Str::HintBack)}});
+            break;
+        case Overlay::Files:
+            draw_files();
+            draw_hints({{"A", tr(Str::HintOpen)}, {"B", tr(Str::HintBack)}});
+            break;
+        case Overlay::Confirm:
+            draw_confirm();
+            break;
+        default:
             break;
     }
 
