@@ -9,7 +9,7 @@ $root = (Resolve-Path "$PSScriptRoot\..\..").Path
 $seed = Join-Path ([System.IO.Path]::GetTempPath()) ("torfoil-seed-" + [System.IO.Path]::GetRandomFileName())
 New-Item -ItemType Directory -Force -Path "$seed\torfoil\downloads", "$seed\torfoil\inbox" | Out-Null
 python "$root\host\mkfixtures.py" "$seed\torfoil\downloads" "$seed\torfoil\inbox" | Out-Null
-Set-Content "$seed\torfoil\settings.cfg" -Encoding ASCII -Value @('language=fr','require_vpn=0','https_trackers_only=0','enable_dht=1','enable_pex=1','no_upload=0','max_active=2')
+Set-Content "$seed\torfoil\settings.cfg" -Encoding ASCII -Value @('language=fr','welcome_seen=1','require_vpn=0','https_trackers_only=0','enable_dht=1','enable_pex=1','no_upload=0','max_active=2')
 
 $script:fail = 0
 function Check([string]$desc, [scriptblock]$test) {

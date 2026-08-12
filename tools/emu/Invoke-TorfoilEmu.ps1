@@ -173,8 +173,19 @@ foreach ($raw in $Script.Split(',')) {
                 $before = $now
             }
             [Emu]::Key([uint16]$vk[$step][0], [bool]$vk[$step][1], $KeyHoldMs)
-            Start-Sleep -Milliseconds 900
-            if ((Frame-Hash) -ne $before) { $done = $true }
+
+            # On compare deux images stabilisees, pas deux instantanes : sans
+            # cela un rafraichissement en cours passe pour un effet, ou l'effet
+            # reel arrive apres la comparaison et la touche est rejouee.
+            Start-Sleep -Milliseconds 700
+            $after = Frame-Hash
+            for ($s2 = 0; $s2 -lt 8; $s2++) {
+                Start-Sleep -Milliseconds 400
+                $now2 = Frame-Hash
+                if ($now2 -eq $after) { break }
+                $after = $now2
+            }
+            if ($after -ne $before) { $done = $true }
         }
         if (-not $done) { Write-Warning "$step sans effet visible apres 6 essais"; $insistFailures++ }
     }

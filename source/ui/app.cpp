@@ -280,6 +280,7 @@ bool App::init(std::string* err) {
     // pari, et on laisse le dernier mot à l'utilisateur.
     const bool had_settings = settings_.load(kSettingsFile);
     language_pending_ = !had_settings;
+    welcome_pending_ = !settings_.welcome_seen;
     set_language(settings_.effective_language());
     language_cursor_ = static_cast<int>(language());
     apply_settings();
@@ -737,6 +738,17 @@ void App::handle_input(uint64_t now_ms) {
             settings_.language = code_of(static_cast<Lang>(language_cursor_));
             settings_.save(kSettingsFile);
             language_pending_ = false;
+        }
+        return;
+    }
+
+    // L'accueil ne se ferme qu'à la demande : c'est le seul moment où l'on
+    // explique par où entrer, et il ne revient jamais tout seul.
+    if (welcome_pending_) {
+        if (down & (HidNpadButton_A | HidNpadButton_B | HidNpadButton_Plus)) {
+            welcome_pending_ = false;
+            settings_.welcome_seen = true;
+            settings_.save(kSettingsFile);
         }
         return;
     }
@@ -1576,6 +1588,42 @@ void App::draw_extract() {
 // rejoindre le reseau, le second ouvre la page. Les afficher tous les deux en
 // meme temps serait plus court a coder et impossible a suivre - l'appareil
 // photo ne saurait pas lequel viser.
+void App::draw_welcome() {
+    const int cx = Renderer::kWidth / 2;
+
+    render_.text_centered(FontSize::Title, tr(Str::WelcomeTitle), cx, 74, palette::kAccent);
+    render_.text_centered(FontSize::Body, tr(Str::WelcomeIntro), cx, 122, palette::kTextDim);
+
+    struct Row {
+        const char* key;
+        Str text;
+    };
+    const Row rows[] = {
+        {"Y", Str::WelcomeSearch},
+        {"X", Str::WelcomeMagnet},
+        {"ZL", Str::WelcomeFile},
+        {"", Str::WelcomeInbox},
+        {"", Str::WelcomeOther},
+    };
+
+    const int left = 118;
+    const int width = Renderer::kWidth - 2 * left;
+    int y = 192;
+    for (const Row& row : rows) {
+        render_.rounded_rect(left, y, width, 62, 12, palette::kSurface);
+        int text_left = left + 24;
+        if (row.key[0] != ' ') {
+            render_.key_badge(FontSize::Body, row.key, left + 24, y + 18, palette::kAccent);
+            text_left = left + 92;
+        }
+        render_.text_clipped(FontSize::Body, tr(row.text), text_left, y + 18,
+                             left + width - text_left - 24, palette::kText);
+        y += 74;
+    }
+
+    render_.text_centered(FontSize::Body, tr(Str::WelcomeStart), cx, y + 18, palette::kAccent);
+}
+
 // Sept lignes, chacune écrite dans sa propre langue. C'est la seule mise en
 // forme qui marche ici : on ne peut pas demander « quelle langue parlez-vous ? »
 // dans une langue que l'on ne parle pas, mais tout le monde reconnaît le nom de
@@ -1940,6 +1988,12 @@ void App::draw(uint64_t now_ms) {
     // les onglets derrière lui donnerait à croire qu'on peut aller ailleurs.
     if (language_pending_) {
         draw_language_picker();
+        render_.end_frame();
+        return;
+    }
+
+    if (welcome_pending_) {
+        draw_welcome();
         render_.end_frame();
         return;
     }

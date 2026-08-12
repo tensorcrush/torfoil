@@ -34,6 +34,11 @@ struct Settings {
     // et diffusées largement. Le couper rend plus discret et bien plus lent.
     bool enable_dht = true;
 
+    // L'écran d'accueil n'a de sens qu'une fois. Le drapeau vit dans les
+    // réglages plutôt qu'en fichier témoin : un seul fichier à effacer pour
+    // retrouver l'application dans son état de sortie d'usine.
+    bool welcome_seen = false;
+
     // Serveur web sur le réseau local, pour piloter depuis un PC. Coupé par
     // défaut : personne ne s'attend à ce qu'une console ouvre un port.
     bool remote_enabled = false;

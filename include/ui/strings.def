@@ -1218,3 +1218,62 @@ X(SearchSeeders,
 X(SearchResults,
   "Ergebnisse für « %s »", "Results for \"%s\"", "Resultados de « %s »",
   "Résultats pour « %s »", "「%s」の結果", "Результаты по «%s»", "「%s」的结果")
+
+// ---------------------------------------------------------------------------
+// Écran d'accueil du premier lancement
+// ---------------------------------------------------------------------------
+X(WelcomeTitle,
+  "Willkommen bei Torfoil", "Welcome to Torfoil", "Bienvenido a Torfoil",
+  "Bienvenue dans Torfoil", "Torfoil へようこそ", "Добро пожаловать в Torfoil",
+  "欢迎使用 Torfoil")
+X(WelcomeIntro,
+  "Fünf Wege, einen Download zu starten. Alle bleiben verfügbar.",
+  "Five ways to start a download. All of them stay available.",
+  "Cinco maneras de empezar una descarga. Todas siguen disponibles.",
+  "Cinq façons de lancer un téléchargement. Toutes restent disponibles.",
+  "ダウンロードを始める方法は五つ。どれもいつでも使えます。",
+  "Пять способов начать загрузку. Все они остаются доступными.",
+  "开始下载的五种方式，全部随时可用。")
+X(WelcomeSearch,
+  "Suchen direkt auf der Konsole. Quellen: search.json.",
+  "Search from the console. Sources: search.json.",
+  "Buscar desde la consola. Fuentes: search.json.",
+  "Chercher depuis la console. Sources : search.json.",
+  "本体から検索。検索元は search.json。",
+  "Поиск с консоли. Источники: search.json.",
+  "在主机上搜索。来源：search.json。")
+X(WelcomeMagnet,
+  "Einen Magnet-Link über die Bildschirmtastatur eintippen.",
+  "Type a magnet link on the on-screen keyboard.",
+  "Escribir un enlace magnet con el teclado en pantalla.",
+  "Taper un lien magnet au clavier virtuel.",
+  "画面キーボードでマグネットリンクを入力。",
+  "Ввести магнет-ссылку с экранной клавиатуры.",
+  "用屏幕键盘输入磁力链接。")
+X(WelcomeFile,
+  "sdmc:/torfoil/magnets.txt vom PC füllen, dann ZL drücken.",
+  "Fill sdmc:/torfoil/magnets.txt from a PC, then press ZL.",
+  "Rellenar sdmc:/torfoil/magnets.txt desde un PC y pulsar ZL.",
+  "Remplir sdmc:/torfoil/magnets.txt depuis un PC, puis ZL.",
+  "PC から sdmc:/torfoil/magnets.txt に書き、ZL を押す。",
+  "Заполнить sdmc:/torfoil/magnets.txt с компьютера, затем ZL.",
+  "在电脑上写入 sdmc:/torfoil/magnets.txt，然后按 ZL。")
+X(WelcomeInbox,
+  ".torrent-Dateien in sdmc:/torfoil/inbox ablegen, sie werden beim Start gelesen.",
+  "Drop .torrent files in sdmc:/torfoil/inbox, they are picked up at launch.",
+  "Dejar archivos .torrent en sdmc:/torfoil/inbox, se leen al arrancar.",
+  "Déposer des .torrent dans sdmc:/torfoil/inbox, ils sont lus au démarrage.",
+  ".torrent を sdmc:/torfoil/inbox に置くと起動時に読み込まれます。",
+  "Положить .torrent в sdmc:/torfoil/inbox, они читаются при запуске.",
+  "把 .torrent 放进 sdmc:/torfoil/inbox，启动时自动读取。")
+X(WelcomeOther,
+  "Reiter Telefon: QR-Code. Einstellungen: Fernzugriff.",
+  "Phone tab: a QR code. Settings: remote access.",
+  "Pestaña Teléfono: un QR. Ajustes: acceso remoto.",
+  "Onglet Téléphone : un QR. Réglages : accès distant.",
+  "「スマホ」タブ: QR。設定: リモートアクセス。",
+  "Вкладка «Телефон»: QR. Настройки: удалённый доступ.",
+  "「手机」标签：二维码。设置：远程访问。")
+X(WelcomeStart,
+  "A — loslegen", "A — get started", "A — empezar", "A — commencer", "A — はじめる",
+  "A — начать", "A — 开始")

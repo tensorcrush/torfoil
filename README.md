@@ -36,6 +36,10 @@ when the main application refuses to start.
 | VPN | **X** Mullvad account (16 digits) · **A** connect/disconnect · **Y** country |
 | Settings | **↑↓** select · **A** toggle · **←→** change value · **Y** self-test |
 
+The first launch asks for a language, then shows the five ways to start a
+download: search, keyboard, `magnets.txt`, the inbox folder, and the phone or
+remote-access route. It is shown once and never gets in the way again.
+
 The **Torrents** tab is a dense list, one row per torrent: an icon for the kind
 of content, the name, the state, and the percentage on the right. Nothing else
 is shown there — everything else is one **A** away.

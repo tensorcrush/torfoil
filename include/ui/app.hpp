@@ -64,6 +64,8 @@ private:
     // Écran de premier lancement : la seule chose affichée tant que la langue
     // n'a pas été choisie.
     void draw_language_picker();
+    // Écran d'accueil, montré une fois, juste après le choix de la langue.
+    void draw_welcome();
     bool language_pending() const { return language_pending_; }
     void draw_vpn();
     void draw_settings();
@@ -160,6 +162,7 @@ private:
     // console est un bon défaut, mais une console prêtée ou revendue n'est pas
     // réglée dans la langue de celui qui la tient.
     bool language_pending_ = false;
+    bool welcome_pending_ = false;
     int language_cursor_ = 0;
 
     std::thread diag_thread_;

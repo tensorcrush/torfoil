@@ -55,6 +55,7 @@ bool Settings::load(const std::string& path) {
         else if (key == "enable_pex") enable_pex = value;
         else if (key == "no_upload") no_upload = value;
         else if (key == "remote_enabled") remote_enabled = value;
+        else if (key == "welcome_seen") welcome_seen = value;
         else if (key == "max_active") {
             const int parsed = std::atoi(raw.c_str());
             max_active = (parsed < 0 || parsed > 8) ? 2 : parsed;
@@ -84,6 +85,7 @@ bool Settings::save(const std::string& path) const {
     std::fprintf(fp, "enable_pex=%d\n", enable_pex ? 1 : 0);
     std::fprintf(fp, "no_upload=%d\n", no_upload ? 1 : 0);
     std::fprintf(fp, "remote_enabled=%d\n", remote_enabled ? 1 : 0);
+    std::fprintf(fp, "welcome_seen=%d\n", welcome_seen ? 1 : 0);
     std::fprintf(fp, "# max_active: 0 = sans limite\n");
     std::fprintf(fp, "max_active=%d\n", max_active);
     std::fclose(fp);
