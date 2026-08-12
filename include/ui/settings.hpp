@@ -34,6 +34,10 @@ struct Settings {
     // et diffusées largement. Le couper rend plus discret et bien plus lent.
     bool enable_dht = true;
 
+    // Serveur web sur le réseau local, pour piloter depuis un PC. Coupé par
+    // défaut : personne ne s'attend à ce qu'une console ouvre un port.
+    bool remote_enabled = false;
+
     // PEX échange des carnets d'adresses avec les pairs : très efficace, mais
     // fait savoir à chacun d'eux ce que l'on connaît de l'essaim.
     bool enable_pex = true;

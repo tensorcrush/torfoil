@@ -28,8 +28,14 @@ BIN="${TMPDIR:-/tmp}/torfoil-host"
 
 # host/include vient EN PREMIER : c'est ce qui fait que #include <switch.h>
 # trouve le faux, et que pas une ligne du programme n'a besoin d'être adaptée.
+# miniz est du C : le passer a g++ le compilerait en C++, ou ses definitions
+# provisoires deviennent des redefinitions.
+MINIZ_O="${TMPDIR:-/tmp}/torfoil-miniz.o"
+cc -O2 -std=gnu11 -w -c third_party/miniz/miniz.c -o "$MINIZ_O"
+
 g++ -std=gnu++17 -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers \
     -I host/include -I include -I third_party/lwip/src/include -I third_party/nanosvg \
+    -I third_party/miniz \
     host/switch_stub.cpp \
     source/main.cpp \
     source/ui/*.cpp \
@@ -39,6 +45,7 @@ g++ -std=gnu++17 -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-i
     source/diag/*.cpp \
     source/util/*.cpp \
     third_party/lwip/src/core/*.c third_party/lwip/src/core/ipv4/*.c \
+    "$MINIZ_O" \
     $(pkg-config --cflags --libs sdl2 SDL2_ttf) \
     -lmbedtls -lmbedx509 -lmbedcrypto -lz -lpthread \
     -o "$BIN"

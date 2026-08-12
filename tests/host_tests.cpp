@@ -8,6 +8,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <unistd.h>
+#include <sys/stat.h>
+
+#include "miniz.h"
 #include <string>
 #include <utility>
 #include <vector>
@@ -29,6 +34,8 @@
 #include "net/wg/wireguard.hpp"
 #include "net/wg/x25519.h"
 #include "util/bytes.hpp"
+#include "bt/search.hpp"
+#include "util/archive.hpp"
 #include "util/qr.hpp"
 #include "util/sha1.hpp"
 
@@ -1101,6 +1108,133 @@ void test_storage_multifile() {
     (void)std::system(cmd.c_str());
 }
 
+
+
+// Extraction : on fabrique une archive avec miniz, on la relit avec le code de
+// l'application, et on vérifie ce qui atterrit sur le disque — y compris les
+// entrées piégées qui voudraient écrire ailleurs.
+void test_archive() {
+    section("Archives ZIP");
+
+    const std::string dir = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp") +
+                            "/torfoil-zip";
+    system(("rm -rf " + dir).c_str());
+    ::mkdir(dir.c_str(), 0777);
+
+    const std::string zip = dir + "/essai.zip";
+    const std::string contenu(200000, 'x');
+
+    mz_zip_archive out;
+    std::memset(&out, 0, sizeof(out));
+    check(mz_zip_writer_init_file(&out, zip.c_str(), 0) != 0, "archive créée");
+    mz_zip_writer_add_mem(&out, "lisezmoi.txt", "bonjour", 7, MZ_BEST_SPEED);
+    mz_zip_writer_add_mem(&out, "dossier/gros.bin", contenu.data(), contenu.size(), MZ_BEST_SPEED);
+    mz_zip_writer_add_mem(&out, "../evasion.txt", "non", 3, MZ_BEST_SPEED);
+    mz_zip_writer_finalize_archive(&out);
+    mz_zip_writer_end(&out);
+
+    check(util::looks_like_zip(zip), "extension reconnue");
+    check(!util::looks_like_zip(dir + "/film.mkv"), "un mkv n'est pas une archive");
+
+    util::ExtractProgress progress;
+    const std::string dest = dir + "/sortie";
+    check(util::extract_zip(zip, dest, progress), "extraction réussie");
+    check(!progress.running.load(), "le suivi se termine");
+    check(progress.ok.load(), "le suivi note la réussite");
+    check(progress.percent() == 100, "progression à 100 %");
+
+    std::string texte;
+    {
+        std::ifstream f(dest + "/lisezmoi.txt", std::ios::binary);
+        std::getline(f, texte);
+    }
+    check(texte == "bonjour", "fichier simple extrait");
+
+    struct stat st{};
+    check(::stat((dest + "/dossier/gros.bin").c_str(), &st) == 0 &&
+              static_cast<size_t>(st.st_size) == contenu.size(),
+          "fichier en sous-dossier extrait à la bonne taille");
+
+    check(::stat((dir + "/evasion.txt").c_str(), &st) != 0, "entrée « .. » refusée");
+
+    system(("rm -rf " + dir).c_str());
+}
+
+// Recherche : les deux formats acceptés, analysés sans réseau.
+void test_search() {
+    section("Recherche");
+
+    bt::SearchProvider torznab;
+    torznab.name = "Indexeur";
+    torznab.kind = "torznab";
+    torznab.url = "http://192.168.1.10:9117/api";
+    torznab.api_key = "abc 123";
+    const std::string url = bt::search_url(torznab, "grand voyage");
+    check(url.find("t=search") != std::string::npos, "requête torznab formée");
+    check(url.find("apikey=abc+123") != std::string::npos, "clé encodée");
+    check(url.find("q=grand+voyage") != std::string::npos, "recherche encodée");
+
+    const std::string xml = R"(<?xml version="1.0"?><rss><channel>
+<item><title>Le &amp; Voyage 2019 1080p</title><size>1500000000</size>
+<enclosure url="magnet:?xt=urn:btih:aaaabbbbccccddddeeeeffff0000111122223333" />
+<torznab:attr name="seeders" value="42" /><torznab:attr name="peers" value="50" /></item>
+<item><title>Sans lien</title><size>10</size></item>
+<item><title>Par empreinte</title><size>20</size>
+<torznab:attr name="infohash" value="1111222233334444555566667777888899990000" />
+<torznab:attr name="seeders" value="7" /></item>
+</channel></rss>)";
+
+    std::vector<bt::SearchResult> results;
+    bt::parse_torznab(xml, "Indexeur", results);
+    check(results.size() == 2, "les entrées sans lien sont écartées");
+    if (results.size() == 2) {
+        check(results[0].name == "Le & Voyage 2019 1080p", "titre déséchappé");
+        check(results[0].size == 1500000000ull, "taille lue");
+        check(results[0].seeders == 42, "sources lues");
+        check(results[0].leechers == 8, "pairs = peers - seeders");
+        check(results[0].magnet.find("aaaabbbb") != std::string::npos, "lien magnet lu");
+        check(results[1].magnet.find("magnet:?xt=urn:btih:11112222") == 0,
+              "lien reconstruit depuis l'empreinte");
+    }
+
+    bt::SearchProvider api;
+    api.name = "Api";
+    api.kind = "json";
+    api.url = "https://exemple.test/search?query={q}";
+    api.list_key = "data";
+    api.name_key = "title";
+    api.size_key = "bytes";
+    api.seeders_key = "seeds";
+    api.magnet_key = "link";
+    check(bt::search_url(api, "essai") == "https://exemple.test/search?query=essai",
+          "gabarit {q} remplacé");
+
+    const std::string body = R"({"data":[
+      {"title":"Un fichier","bytes":2048,"seeds":9,"link":"magnet:?xt=urn:btih:cafe"},
+      {"title":"Sans lien","bytes":1,"seeds":0}]})";
+    std::vector<bt::SearchResult> json_results;
+    check(bt::parse_json_results(body, api, json_results), "json analysé");
+    check(json_results.size() == 1, "entrée sans lien écartée");
+    if (!json_results.empty()) {
+        check(json_results[0].name == "Un fichier", "titre json lu");
+        check(json_results[0].size == 2048, "taille json lue");
+        check(json_results[0].seeders == 9, "sources json lues");
+    }
+
+    const std::string path = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp") +
+                             "/torfoil-search.json";
+    std::remove(path.c_str());
+    std::vector<bt::SearchProvider> providers;
+    check(bt::load_providers(path, providers, nullptr), "fichier absent : pas une erreur");
+    check(providers.empty(), "aucune source livrée d'office");
+    check(::access(path.c_str(), F_OK) == 0, "exemple écrit pour l'utilisateur");
+
+    std::vector<bt::SearchProvider> reread;
+    check(bt::load_providers(path, reread, nullptr) && reread.empty(),
+          "l'exemple est désactivé");
+    std::remove(path.c_str());
+}
+
 }  // namespace
 
 int main() {
@@ -1123,6 +1257,8 @@ int main() {
     test_storage();
     test_storage_multifile();
     test_storage_size_limit();
+    test_archive();
+    test_search();
 
     std::printf("\n\033[1m%d réussis, %d échoués\033[0m\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

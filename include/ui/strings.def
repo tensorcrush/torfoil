@@ -603,6 +603,7 @@ X(HintSkipCheck,
 X(HintRemove,
   "Entfernen", "Remove", "Quitar", "Retirer", "削除", "Убрать", "移除")
 X(HintTab, "Reiter", "Tab", "Pestaña", "Onglet", "タブ", "Вкладка", "标签页")
+X(HintAdd, "Hinzufügen", "Add", "Añadir", "Ajouter", "追加", "Добавить", "添加")
 X(HintQuit, "Beenden", "Quit", "Salir", "Quitter", "終了", "Выход", "退出")
 X(HintInstall,
   "Installieren", "Install", "Instalar", "Installer", "インストール", "Установить", "安装")
@@ -1161,3 +1162,59 @@ X(MaxActiveEffect,
 X(MaxActiveUnlimited,
   "ohne Grenze", "no limit", "sin límite", "sans limite", "無制限",
   "без ограничения", "不限")
+
+// ---------------------------------------------------------------------------
+// Acces distant
+// ---------------------------------------------------------------------------
+X(FieldRemoteAddress,
+  "Adresse", "Address", "Dirección", "Adresse", "アドレス", "Адрес", "地址")
+X(FieldRemoteKey,
+  "Schlüssel", "Key", "Clave", "Clé", "キー", "Ключ", "密钥")
+X(RemoteNoAddress,
+  "kein Netzwerk", "no network", "sin red", "pas de réseau", "ネットワークなし",
+  "нет сети", "无网络")
+
+// ---------------------------------------------------------------------------
+// Extraction d'archives
+// ---------------------------------------------------------------------------
+X(ActExtract,
+  "Archiv entpacken", "Extract archive", "Extraer el archivo", "Extraire l'archive",
+  "書庫を展開", "Распаковать архив", "解压压缩包")
+X(ExtractTitle,
+  "Entpacken", "Extracting", "Extrayendo", "Extraction", "展開中", "Распаковка", "正在解压")
+X(ExtractFiles,
+  "%u von %u Dateien", "%u of %u files", "%u de %u archivos", "%u fichiers sur %u",
+  "%u / %u ファイル", "%u из %u файлов", "%u / %u 个文件")
+X(ExtractBackground,
+  "B — im Hintergrund weiterlaufen lassen", "B — leave it running in the background",
+  "B — dejarlo en segundo plano", "B — laisser tourner en arrière-plan",
+  "B — バックグラウンドで続行", "B — оставить в фоне", "B — 让它在后台继续")
+X(ExtractBusy,
+  "Ein Archiv wird bereits entpackt", "An archive is already being extracted",
+  "Ya se está extrayendo un archivo", "Une archive est déjà en cours d'extraction",
+  "すでに展開中の書庫があります", "Один архив уже распаковывается", "已有一个压缩包正在解压")
+
+// ---------------------------------------------------------------------------
+// Recherche
+// ---------------------------------------------------------------------------
+X(HintSearch,
+  "Suchen", "Search", "Buscar", "Rechercher", "検索", "Поиск", "搜索")
+X(SearchPrompt,
+  "Wonach suchen?", "What are you looking for?", "¿Qué buscas?", "Que cherchez-vous ?",
+  "何を探しますか？", "Что искать?", "搜索什么？")
+X(SearchRunning,
+  "Suche läuft…", "Searching…", "Buscando…", "Recherche en cours…", "検索中…",
+  "Идёт поиск…", "正在搜索…")
+X(SearchEmpty,
+  "Nichts gefunden", "Nothing found", "Sin resultados", "Aucun résultat", "見つかりません",
+  "Ничего не найдено", "没有结果")
+X(SearchNoProviders,
+  "Keine Quelle in search.json", "No source in search.json", "Ninguna fuente en search.json",
+  "Aucune source dans search.json", "search.json に検索元がありません",
+  "В search.json нет источников", "search.json 中没有来源")
+X(SearchSeeders,
+  "%u Quellen", "%u seeders", "%u fuentes", "%u sources", "%u シード", "%u раздающих",
+  "%u 个做种")
+X(SearchResults,
+  "Ergebnisse für « %s »", "Results for \"%s\"", "Resultados de « %s »",
+  "Résultats pour « %s »", "「%s」の結果", "Результаты по «%s»", "「%s」的结果")

@@ -36,6 +36,12 @@ const char* kSettingsFile = "sdmc:/torfoil/settings.cfg";
 // Là où le téléphone dépose ce qu'il envoie, et où l'on peut poser soi-même des
 // fichiers .torrent depuis un PC.
 const char* kInboxDir = "sdmc:/torfoil/inbox";
+// Sources de recherche, déclarées par l'utilisateur. Vide au départ.
+const char* kSearchFile = "sdmc:/torfoil/search.json";
+// Port du serveur web local. 8080 est déjà celui de l'import téléphone, mais
+// les deux ne tournent jamais ensemble : le point d'accès coupe le réseau qui
+// porte l'accès distant.
+constexpr uint16_t kRemotePort = 8080;
 
 std::string tab_label(int index) {
     switch (index) {
@@ -290,6 +296,14 @@ void App::shutdown() {
     // pas d'accès à Internet. Le laisser derrière soi couperait le Wi-Fi du
     // salon jusqu'au redémarrage suivant.
     phone_.stop();
+    remote_.stop();
+
+    // Une extraction en cours écrit sur la carte : la couper net laisserait un
+    // fichier tronqué, l'attendre est plus court que de le réparer.
+    if (extract_thread_.joinable()) {
+        extract_.cancel.store(true);
+        extract_thread_.join();
+    }
 
     if (diag_thread_.joinable()) diag_thread_.join();
 
@@ -341,6 +355,11 @@ void App::open_actions() {
     actions_.clear();
 
     if (!t->content_root.empty()) actions_.push_back(Str::ActOpenLocation);
+    // L'extraction n'a de sens qu'une fois le fichier complet, et seulement si
+    // c'en est une : proposer « extraire » sur un film serait du bruit.
+    const bool complete = t->state == bt::TorrentState::Seeding ||
+                          t->state == bt::TorrentState::Completed;
+    if (complete && util::looks_like_zip(t->content_root)) actions_.push_back(Str::ActExtract);
     actions_.push_back(Str::ActInfo);
     if (t->state == bt::TorrentState::Checking) actions_.push_back(Str::ActSkipCheck);
     actions_.push_back(t->state == bt::TorrentState::Paused ? Str::ActResume : Str::ActPause);
@@ -391,6 +410,84 @@ void App::enter_dir(std::string dir) {
     files_scroll_ = 0;
 }
 
+void App::start_extract(const std::string& archive, const std::string& dest) {
+    if (extract_.running.load()) {
+        toast(tr(Str::ExtractBusy), true);
+        return;
+    }
+    if (extract_thread_.joinable()) extract_thread_.join();
+
+    const size_t cut = archive.rfind('/');
+    extract_name_ = cut == std::string::npos ? archive : archive.substr(cut + 1);
+    extract_.running.store(true);
+    overlay_ = Overlay::Extract;
+
+    extract_thread_ = std::thread([this, archive, dest] {
+        util::extract_zip(archive, dest, extract_);
+    });
+}
+
+// L'extraction continue si l'on ferme l'incrustation : c'est la fin qu'il faut
+// annoncer, pas l'écran qu'il faut garder ouvert.
+void App::poll_extract() {
+    if (extract_.running.load() || !extract_thread_.joinable()) return;
+    extract_thread_.join();
+    const std::string message = extract_.last_message();
+    toast(message, !extract_.ok.load());
+    if (overlay_ == Overlay::Extract) overlay_ = Overlay::None;
+    last_completion_.clear();  // force une relecture : le dossier a changé
+}
+
+void App::start_search() {
+    if (searching_.load()) return;
+    if (search_thread_.joinable()) search_thread_.join();
+
+    std::string query;
+    if (!text_input(tr(Str::SearchPrompt), "", query, 128)) return;
+    while (!query.empty() && query.back() == ' ') query.pop_back();
+    if (query.empty()) return;
+
+    std::string err;
+    if (!load_providers(kSearchFile, providers_, &err)) {
+        toast(err, true);
+        return;
+    }
+    if (providers_.empty()) {
+        toast(tr(Str::SearchNoProviders), true);
+        return;
+    }
+
+    search_query_ = query;
+    search_error_.clear();
+    results_.clear();
+    results_cursor_ = 0;
+    results_scroll_ = 0;
+    searching_.store(true);
+    overlay_ = Overlay::Search;
+
+    search_thread_ = std::thread([this] {
+        std::vector<bt::SearchResult> found;
+        std::string err;
+        // La recherche emprunte le même transport que le reste : tunnel compris
+        // quand le VPN est debout.
+        if (auto transport = session_.transport_for_diagnostics()) {
+            if (!bt::run_search(*transport, providers_, search_query_, found, &err)) {
+                search_error_ = err;
+            }
+        } else {
+            search_error_ = "réseau indisponible";
+        }
+        results_ = std::move(found);
+        searching_.store(false);
+    });
+}
+
+void App::poll_search() {
+    if (searching_.load() || !search_thread_.joinable()) return;
+    search_thread_.join();
+    if (!search_error_.empty()) toast(search_error_, true);
+}
+
 void App::run_action() {
     const bt::TorrentStatus* t = focused();
     if (!t || actions_.empty()) {
@@ -430,6 +527,16 @@ void App::run_action() {
             }
             break;
 
+        case Str::ActExtract: {
+            const size_t cut = root.rfind('/');
+            const std::string dir = cut == std::string::npos ? root : root.substr(0, cut);
+            std::string stem = cut == std::string::npos ? root : root.substr(cut + 1);
+            const size_t dot = stem.rfind('.');
+            if (dot != std::string::npos) stem = stem.substr(0, dot);
+            start_extract(root, dir + "/" + stem);
+            return;
+        }
+
         case Str::ActRemoveKeep:
             session_.remove(hash, /*delete_files=*/false);
             toast(tr(Str::ToastRemovedKept));
@@ -460,6 +567,14 @@ void App::apply_settings() {
     privacy.no_upload = settings_.no_upload;
     session_.set_privacy(privacy);
     session_.set_max_active(settings_.max_active);
+
+    if (settings_.remote_enabled && !remote_.running()) {
+        std::string err;
+        if (!remote_.start(session_, kRemotePort, &err)) toast(err, true);
+    } else if (!settings_.remote_enabled && remote_.running()) {
+        remote_.stop();
+    }
+
     settings_.save(kSettingsFile);
 }
 
@@ -685,6 +800,33 @@ void App::handle_input(uint64_t now_ms) {
                 break;
             }
 
+            case Overlay::Search: {
+                const int count = static_cast<int>(results_.size());
+                if (count > 0 && next) results_cursor_ = (results_cursor_ + 1) % count;
+                if (count > 0 && prev) results_cursor_ = (results_cursor_ + count - 1) % count;
+                if ((down & HidNpadButton_A) && count > 0 && !searching_.load()) {
+                    const bt::SearchResult& r = results_[static_cast<size_t>(results_cursor_)];
+                    std::string err;
+                    if (session_.add_magnet(r.magnet, &err)) {
+                        toast(r.name);
+                        overlay_ = Overlay::None;
+                    } else {
+                        toast(err, true);
+                    }
+                }
+                if (down & HidNpadButton_B) overlay_ = Overlay::None;
+                break;
+            }
+
+            case Overlay::Extract:
+                // B referme l'écran, pas l'extraction : elle finit toute seule
+                // et le dira par un message.
+                if (down & (HidNpadButton_B | HidNpadButton_A)) {
+                    overlay_ = Overlay::None;
+                    overlay_hash_.clear();
+                }
+                break;
+
             case Overlay::Confirm:
                 if (down & HidNpadButton_A) {
                     if (const bt::TorrentStatus* t = focused()) {
@@ -733,6 +875,7 @@ void App::handle_input(uint64_t now_ms) {
     switch (tab_) {
         case Tab::Torrents:
             if (down & HidNpadButton_X) add_magnet_flow();
+            if (down & HidNpadButton_Y) start_search();
             if (down & HidNpadButton_ZL) import_magnets_file();
             // Tout ce qui agit sur un torrent passe par le menu : la liste ne
             // sert qu'à montrer, et aucune touche ne supprime quoi que ce soit
@@ -1344,6 +1487,91 @@ void App::draw_confirm() {
                           Renderer::kWidth / 2, y + h - 46, palette::kTextDim);
 }
 
+void App::draw_search() {
+    dim_background(render_);
+
+    const int w = 1000;
+    const int h = 560;
+    const int x = (Renderer::kWidth - w) / 2;
+    const int y = (Renderer::kHeight - h) / 2;
+
+    render_.rounded_rect(x, y, w, h, 16, palette::kSurfaceAlt);
+    render_.text_clipped(FontSize::Body, trf(Str::SearchResults, search_query_.c_str()), x + 28,
+                         y + 22, w - 56, palette::kAccent);
+
+    if (searching_.load()) {
+        render_.text_centered(FontSize::Body, tr(Str::SearchRunning), Renderer::kWidth / 2,
+                              y + h / 2 - 12, palette::kTextDim);
+        return;
+    }
+    if (results_.empty()) {
+        render_.text_centered(FontSize::Body, tr(Str::SearchEmpty), Renderer::kWidth / 2,
+                              y + h / 2 - 12, palette::kTextDim);
+        return;
+    }
+
+    constexpr int row_h = 58;
+    const int top = y + 64;
+    const int visible = (h - 110) / row_h;
+    if (results_cursor_ < results_scroll_) results_scroll_ = results_cursor_;
+    if (results_cursor_ >= results_scroll_ + visible) results_scroll_ = results_cursor_ - visible + 1;
+
+    for (int i = 0; i < visible; ++i) {
+        const int index = results_scroll_ + i;
+        if (index >= static_cast<int>(results_.size())) break;
+        const bt::SearchResult& r = results_[static_cast<size_t>(index)];
+        const int ry = top + i * row_h;
+        const bool focused = index == results_cursor_;
+
+        render_.rounded_rect(x + 20, ry, w - 40, row_h - 6, 10,
+                             focused ? palette::kSelected : palette::kSurface);
+        render_.text_clipped(FontSize::Body, r.name, x + 36, ry + 4, w - 300,
+                             focused ? palette::kText : palette::kTextDim);
+        const std::string detail =
+            util::human_size(r.size) + "  ·  " + trf(Str::SearchSeeders, r.seeders) + "  ·  " +
+            r.source;
+        render_.text_clipped(FontSize::Small, detail, x + 36, ry + 28, w - 300, palette::kTextDim);
+    }
+
+    const std::string count = std::to_string(results_cursor_ + 1) + " / " +
+                              std::to_string(results_.size());
+    render_.text(FontSize::Small, count, x + w - 28 - render_.text_width(FontSize::Small, count),
+                 y + h - 40, palette::kTextDim);
+}
+
+void App::draw_extract() {
+    dim_background(render_);
+
+    const int w = 760;
+    const int h = 240;
+    const int x = (Renderer::kWidth - w) / 2;
+    const int y = (Renderer::kHeight - h) / 2;
+
+    render_.rounded_rect(x, y, w, h, 16, palette::kSurfaceAlt);
+    render_.text_centered(FontSize::Title, tr(Str::ExtractTitle), Renderer::kWidth / 2, y + 26,
+                          palette::kAccent);
+    render_.text_clipped(FontSize::Body, extract_name_, x + 30, y + 78, w - 60, palette::kText);
+
+    const std::string current = extract_.current_file();
+    render_.text_clipped(FontSize::Small, current, x + 30, y + 108, w - 60, palette::kTextDim);
+
+    const int pct = extract_.percent();
+    const int bar_w = w - 60;
+    render_.rounded_rect(x + 30, y + 142, bar_w, 8, 4, palette::kSurface);
+    render_.rounded_rect(x + 30, y + 142, bar_w * pct / 100, 8, 4, palette::kSuccess);
+
+    render_.text(FontSize::Small,
+                 trf(Str::ExtractFiles, extract_.files_done.load(), extract_.files_total.load()),
+                 x + 30, y + 162, palette::kTextDim);
+    const std::string pct_text = std::to_string(pct) + " %";
+    render_.text(FontSize::Small, pct_text,
+                 x + w - 30 - render_.text_width(FontSize::Small, pct_text), y + 162,
+                 palette::kText);
+
+    render_.text_centered(FontSize::Small, tr(Str::ExtractBackground), Renderer::kWidth / 2,
+                          y + h - 40, palette::kTextDim);
+}
+
 // Deux etapes, deux codes QR, comme l'Album de la console : le premier fait
 // rejoindre le reseau, le second ouvre la page. Les afficher tous les deux en
 // meme temps serait plus court a coder et impossible a suivre - l'appareil
@@ -1537,9 +1765,23 @@ void App::draw_settings() {
     constexpr int switch_w = 54;
     constexpr int switch_h = 28;
 
+    // La liste dépasse la hauteur de l'écran depuis qu'il y a six bascules.
+    // On la fait glisser sous le curseur plutôt que de rétrécir les lignes :
+    // un réglage qu'on ne peut pas lire ne sert à rien.
+    const int rows_total = 2 + static_cast<int>(list.size());
+    const int rows_visible = (kContentBottom - y) / row_h;
+    int first_row = 0;
+    if (rows_total > rows_visible) {
+        first_row = settings_cursor_ - rows_visible + 1;
+        if (first_row < 0) first_row = 0;
+        if (first_row > rows_total - rows_visible) first_row = rows_total - rows_visible;
+    }
+    int row_index = 0;
+    const auto skip_row = [&]() { return row_index++ < first_row; };
+
     // La langue en premier : c'est le réglage qu'on vient chercher quand on ne
     // comprend pas le reste de l'écran.
-    {
+    if (!skip_row()) {
         const bool focused = settings_cursor_ == 0;
         render_.rounded_rect(left, y, left_w, row_h - 8, 10,
                              focused ? palette::kSelected : palette::kSurface);
@@ -1555,7 +1797,7 @@ void App::draw_settings() {
 
     // Le nombre de téléchargements simultanés juste après : c'est le réglage
     // qui explique pourquoi un torrent ajouté reste « en attente ».
-    {
+    if (!skip_row()) {
         const bool focused = settings_cursor_ == 1;
         render_.rounded_rect(left, y, left_w, row_h - 8, 10,
                              focused ? palette::kSelected : palette::kSurface);
@@ -1572,6 +1814,8 @@ void App::draw_settings() {
     }
 
     for (size_t i = 0; i < list.size(); ++i) {
+        if (skip_row()) continue;
+        if (y + row_h - 8 > kContentBottom) break;
         const Toggle& t = list[i];
         const bool raw = settings_.*(t.field);
         const bool checked = t.inverted ? !raw : raw;
@@ -1607,6 +1851,11 @@ void App::draw_settings() {
     info(tr(Str::FieldActiveTorrents), std::to_string(torrents_.size()));
     info(tr(Str::FieldAccessPoint),
          phone_.step() == Phone::Step::Off ? tr(Str::AccessPointOff) : phone_.ap().ssid());
+    if (settings_.remote_enabled) {
+        const std::string url = remote_.base_url();
+        info(tr(Str::FieldRemoteAddress), url.empty() ? tr(Str::RemoteNoAddress) : url);
+        if (!url.empty()) info(tr(Str::FieldRemoteKey), remote_.token());
+    }
 
     ry += 20;
     render_.section_header(tr(Str::SecSelfTest), right, ry, palette::kAccent);
@@ -1704,6 +1953,7 @@ void App::draw(uint64_t now_ms) {
             std::vector<std::pair<std::string, std::string>> hints = {
                 {"A", tr(Str::HintActions)},
                 {"X", tr(Str::HintPasteMagnet)},
+                {"Y", tr(Str::HintSearch)},
                 {"ZL", tr(Str::HintMagnetsFile)}};
             if (orphan_count_ > 0) hints.push_back({"ZR", tr(Str::HintOrphans)});
             hints.push_back({"L/R", tr(Str::HintTab)});
@@ -1763,6 +2013,13 @@ void App::draw(uint64_t now_ms) {
         case Overlay::Confirm:
             draw_confirm();
             break;
+        case Overlay::Extract:
+            draw_extract();
+            break;
+        case Overlay::Search:
+            draw_search();
+            draw_hints({{"A", tr(Str::HintAdd)}, {"B", tr(Str::HintBack)}});
+            break;
         default:
             break;
     }
@@ -1790,6 +2047,8 @@ void App::run() {
             sleep_disabled_ = busy;
         }
 
+        poll_extract();
+        poll_search();
         for (const std::string& event : phone_.take_events()) toast(event);
         vpn_.update(session_);
 

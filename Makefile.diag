@@ -21,8 +21,8 @@ APP_VERSION := 0.2.0
 
 TARGET   := torfoil-diag
 BUILD    := build-diag
-SOURCES  := tools source/bt source/net source/net/wg source/util source/diag
-INCLUDES := include third_party/lwip/src/include
+SOURCES  := tools source/bt source/net source/net/wg source/util source/diag third_party/miniz
+INCLUDES := include third_party/lwip/src/include third_party/miniz
 DATA     :=
 
 ARCH := -march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE

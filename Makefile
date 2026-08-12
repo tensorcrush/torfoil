@@ -21,9 +21,9 @@ TARGET   := torfoil
 BUILD    := build
 SOURCES  := source source/bt source/net source/net/wg source/util source/ui \
             source/vpn source/diag \
-            third_party/lwip/src/core third_party/lwip/src/core/ipv4
+            third_party/lwip/src/core third_party/lwip/src/core/ipv4 third_party/miniz
 DATA     := data
-INCLUDES := include third_party/lwip/src/include third_party/nanosvg
+INCLUDES := include third_party/lwip/src/include third_party/nanosvg third_party/miniz
 
 # Pas de ROMFS, et c'est délibéré : l'application n'embarque aucune ressource
 # (la police vient de pl:u). Le laisser pointer vers un dossier absent faisait

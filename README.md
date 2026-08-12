@@ -30,7 +30,7 @@ when the main application refuses to start.
 
 | Tab | Controls |
 |---|---|
-| Torrents | **↑↓** select · **A** actions on the torrent under the cursor · **X** paste a magnet · **ZL** import `magnets.txt` · **ZR** orphan files |
+| Torrents | **↑↓** select · **A** actions on the torrent under the cursor · **X** paste a magnet · **Y** search · **ZL** import `magnets.txt` · **ZR** orphan files |
 | Downloads | What is running right now, then the queue in order |
 | Phone | **A** open/close the access point · **Y** once the phone has joined |
 | VPN | **X** Mullvad account (16 digits) · **A** connect/disconnect · **Y** country |
@@ -43,6 +43,7 @@ is shown there — everything else is one **A** away.
 | Action | What it does |
 |---|---|
 | Location | Browses the torrent's own files, and only those. Split files (a folder of `00`, `01`… slices) appear as the single file they are. |
+| Extract archive | Only for a finished `.zip`. Unpacks it next to the archive, in a folder named after it, in the background. |
 | Information | Pieces held and rejected, piece length, file count, peers, blocks in flight, rates, ETA, trackers, private flag, hash, path. |
 | Pause / Resume | Drops the peers, keeps the resume point. |
 | Remove | Keeping the files, or deleting them — the second asks for confirmation and names the torrent. |
@@ -58,6 +59,55 @@ Active torrents **resume automatically on startup**: each magnet link is kept in
 `sdmc:/torfoil/downloads/.<hash>.magnet`. Without this, closing the application
 silently abandoned the download: the files stayed on the card, half finished,
 and nothing ever picked them up again.
+
+### Searching
+
+**Y** on the Torrents tab opens a search box; results are listed with size,
+seeder count and source, sorted by seeders, and **A** starts the download.
+
+No source ships with the application. `sdmc:/torfoil/search.json` is created
+empty on first launch and it is up to you to declare what gets queried:
+
+```json
+{
+  "providers": [
+    {
+      "name": "My indexer",
+      "kind": "torznab",
+      "url": "http://192.168.1.10:9117/api/v2.0/indexers/all/results/torznab/api",
+      "api_key": "...",
+      "enabled": true
+    }
+  ]
+}
+```
+
+`kind` is either `torznab`, the protocol every indexer manager speaks (Jackett,
+Prowlarr), or `json` for any API returning a list, in which case `list_key`,
+`name_key`, `size_key`, `seeders_key`, `magnet_key` and `hash_key` say where to
+read each field. Searches go through the active transport, so they ride the
+tunnel when the VPN is up.
+
+### Driving it from a computer
+
+Turn on **Remote access** in the Settings tab. The console then serves a page on
+the network it is already connected to, so downloads keep running while you use
+it, and the Settings tab shows the address and the key to type in.
+
+The page lists the torrents with their progress, rate, peers and ETA, refreshes
+every two seconds, and can add a magnet or a `.torrent`, pause, resume and
+remove. Only private addresses are served, and every API call needs the key, so
+a neighbour on the same Wi-Fi cannot delete your files.
+
+### Extracting archives
+
+A finished `.zip` gets an **Extract archive** entry in its action menu. The
+files are written next to the archive, in a folder named after it, while a
+progress panel shows where it is; **B** puts that panel away and the extraction
+carries on. Entries that try to write outside the destination are refused, and
+outputs over 4 GB use the same concatenation-file trick as downloads. Only ZIP
+is supported: RAR and 7z need libraries heavier than the rest of the
+application.
 
 ### Privacy (Settings tab)
 

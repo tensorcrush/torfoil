@@ -8,10 +8,13 @@
 #include <thread>
 #include <vector>
 
+#include "bt/search.hpp"
 #include "bt/session.hpp"
 #include "diag/selftest.hpp"
 #include "ui/icons.hpp"
 #include "ui/phone.hpp"
+#include "ui/remote.hpp"
+#include "util/archive.hpp"
 #include "ui/render.hpp"
 #include "ui/settings.hpp"
 #include "vpn/manager.hpp"
@@ -41,7 +44,7 @@ private:
 
     // Ce qui recouvre l'écran. Un seul à la fois : empiler des panneaux rendrait
     // le bouton B ambigu, et c'est le seul chemin de retour.
-    enum class Overlay { None, Actions, Info, Files, Confirm };
+    enum class Overlay { None, Actions, Info, Files, Confirm, Extract, Search };
 
     void handle_input(uint64_t now_ms);
     void draw(uint64_t now_ms);
@@ -55,6 +58,8 @@ private:
     void draw_info();
     void draw_files();
     void draw_confirm();
+    void draw_extract();
+    void draw_search();
     void draw_phone();
     // Écran de premier lancement : la seule chose affichée tant que la langue
     // n'a pas été choisie.
@@ -88,6 +93,12 @@ private:
     // pendrait dans le vide et le dossier s'ouvrait vide.
     void enter_dir(std::string dir);
     void run_action();
+    // Lance l'extraction dans un fil : une archive de plusieurs gigaoctets
+    // gèlerait l'affichage pendant des minutes.
+    void start_extract(const std::string& archive, const std::string& dest);
+    void poll_extract();
+    void start_search();
+    void poll_search();
 
     Renderer render_;
     IconSet icons_;
@@ -126,6 +137,20 @@ private:
     uint64_t toast_until_ms_ = 0;
 
     Phone phone_;
+    Remote remote_;
+
+    util::ExtractProgress extract_;
+    std::thread extract_thread_;
+    std::string extract_name_;
+
+    std::vector<bt::SearchResult> results_;
+    std::vector<bt::SearchProvider> providers_;
+    std::thread search_thread_;
+    std::atomic<bool> searching_{false};
+    std::string search_query_;
+    std::string search_error_;
+    int results_cursor_ = 0;
+    int results_scroll_ = 0;
 
     Settings settings_;
     int settings_cursor_ = 0;
