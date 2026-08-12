@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "backend": "WindowKeyboard",
+  "id": "0",
+  "controller_type": "JoyconPair",
+  "player_index": "Player1",
+  "left_joycon_stick": {
+    "stick_up": "Up",
+    "stick_down": "Down",
+    "stick_left": "Left",
+    "stick_right": "Right",
+    "stick_button": "Unbound"
+  },
+  "right_joycon_stick": {
+    "stick_up": "Unbound",
+    "stick_down": "Unbound",
+    "stick_left": "Unbound",
+    "stick_right": "Unbound",
+    "stick_button": "Unbound"
+  },
+  "left_joycon": {
+    "button_minus": "Tab",
+    "button_l": "Home",
+    "button_zl": "PageUp",
+    "button_sl": "Unbound",
+    "button_sr": "Unbound",
+    "dpad_up": "Up",
+    "dpad_down": "Down",
+    "dpad_left": "Left",
+    "dpad_right": "Right"
+  },
+  "right_joycon": {
+    "button_plus": "Enter",
+    "button_r": "End",
+    "button_zr": "PageDown",
+    "button_sl": "Unbound",
+    "button_sr": "Unbound",
+    "button_x": "Insert",
+    "button_b": "BackSpace",
+    "button_y": "Delete",
+    "button_a": "Space"
+  }
+}

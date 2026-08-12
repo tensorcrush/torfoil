@@ -1,0 +1,13 @@
+diff --git a/src/Ryujinx.HLE/HOS/Services/SurfaceFlinger/BufferQueueCore.cs b/src/Ryujinx.HLE/HOS/Services/SurfaceFlinger/BufferQueueCore.cs
+index 8399c6d..20cff29 100644
+--- a/src/Ryujinx.HLE/HOS/Services/SurfaceFlinger/BufferQueueCore.cs
++++ b/src/Ryujinx.HLE/HOS/Services/SurfaceFlinger/BufferQueueCore.cs
+@@ -207,7 +207,7 @@ namespace Ryujinx.HLE.HOS.Services.SurfaceFlinger
+         {
+             if (Active)
+             {
+-                Monitor.Wait(Lock);
++                Monitor.Wait(Lock, 16);
+             }
+         }
+ 

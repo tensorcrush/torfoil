@@ -382,13 +382,27 @@ the cause with no further round trip.
 fonts. Use it when the main application will not start: it isolates the engine
 from everything display-related. Results land in `sdmc:/torfoil/diagnostic.log`.
 
-### Why not an emulator
+### Testing on an emulator
 
-Tested, and the answer was unambiguous: on the development machine, yuzu crashes
-(0xC0000005) on a **twelve-line hello world** just as it does on Torfoil. The log
-shows the NRO loaded, then the emulator synthesising font archives, then the
-exit, before any guest code runs. No homebrew runs at all, so no emulator can
-validate anything here. That is what motivated the built-in self-test.
+Torfoil runs unmodified in a headless Switch emulator, and the whole run is
+scripted: a fresh SD card is seeded with five `.torrent` files and their data,
+the app is driven by a sequence of button presses, screenshots are taken, and
+the test then reads back what the guest wrote to that card (log, settings,
+resume points, emptied inbox). One command, about a minute, exit code 0 or 1.
+
+```powershell
+powershell -File tools\emu\Test-TorfoilEmu.ps1
+```
+
+Firmware and keys must be dumped from your own console. Setup, the layout
+independent input handling, the two emulator patches needed for the GPU free
+Linux variant, and the known limitations are documented in
+[tools/emu/README.md](tools/emu/README.md).
+
+An earlier attempt with yuzu had gone nowhere: it crashed (0xC0000005) on a
+twelve-line hello world before any guest code ran. That dead end is what
+motivated the built-in self-test, which remains the fastest check on real
+hardware.
 
 ## Prior art
 

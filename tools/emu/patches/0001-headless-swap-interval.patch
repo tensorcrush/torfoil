@@ -1,0 +1,17 @@
+diff --git a/src/Ryujinx/Headless/OpenGL/OpenGLWindow.cs b/src/Ryujinx/Headless/OpenGL/OpenGLWindow.cs
+index 7ea1f39..90fd516 100644
+--- a/src/Ryujinx/Headless/OpenGL/OpenGLWindow.cs
++++ b/src/Ryujinx/Headless/OpenGL/OpenGLWindow.cs
+@@ -132,7 +132,11 @@ namespace Ryujinx.Headless
+             // Ensure to not share this context with other contexts before this point.
+             SetupOpenGLAttributes(false, _glLogLevel);
+             SDL_GLContextState* context = SDL_GL_CreateContext(WindowHandle);
+-            CheckResult(SDL_GL_SetSwapInterval(1));
++            if (!SDL_GL_SetSwapInterval(1))
++            {
++                Ryujinx.Common.Logging.Logger.Warning?.Print(Ryujinx.Common.Logging.LogClass.Application,
++                    $"SDL_GL_SetSwapInterval unsupported ({SDL_GetError()}); continuing without vsync (headless/software rendering).");
++            }
+ 
+             if (context == null)
+             {
