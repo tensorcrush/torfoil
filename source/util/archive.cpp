@@ -19,7 +19,6 @@ namespace util {
 namespace {
 
 constexpr uint64_t kFat32FileLimit = 0xFFFFFFFFull;
-constexpr size_t kChunk = 256 * 1024;
 
 std::string lowered(const std::string& s) {
     std::string out = s;
@@ -149,7 +148,6 @@ bool extract_zip(const std::string& zip_path, const std::string& dest_dir,
 
     make_dirs(dest_dir);
 
-    std::vector<uint8_t> buffer(kChunk);
     uint32_t written_files = 0;
 
     for (mz_uint i = 0; i < count; ++i) {
@@ -185,7 +183,11 @@ bool extract_zip(const std::string& zip_path, const std::string& dest_dir,
         std::string err;
         create_target(target, st.m_uncomp_size, &err);
 
-        std::FILE* out = std::fopen(target.c_str(), "wb");
+        // Un fichier concaténé ne survit pas à « wb » : la réouverture le
+        // remplacerait par un fichier ordinaire, borné à 4 Go sur FAT32.
+        std::FILE* out = nullptr;
+        if (st.m_uncomp_size > kFat32FileLimit) out = std::fopen(target.c_str(), "r+b");
+        if (!out) out = std::fopen(target.c_str(), "wb");
         if (!out) {
             mz_zip_reader_end(&zip);
             return finish(false, "écriture impossible : " + relative);

@@ -142,6 +142,7 @@ net::HttpReply Remote::api_add(const net::HttpRequest& request) {
         }
         for (const net::MultipartPart& part : parts) {
             if (part.data.empty()) continue;
+            if (part.filename.empty() && part.name != "files") continue;
             // Le fichier passe par la carte : le moteur lit un chemin, pas un
             // tampon, et l'utilisateur garde une trace de ce qui a été envoyé.
             const std::string name = util::sanitize_filename(

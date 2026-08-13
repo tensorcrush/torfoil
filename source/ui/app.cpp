@@ -306,6 +306,7 @@ void App::shutdown() {
         extract_thread_.join();
     }
 
+    if (search_thread_.joinable()) search_thread_.join();
     if (diag_thread_.joinable()) diag_thread_.join();
 
     if (sleep_disabled_) appletSetAutoSleepDisabled(false);
@@ -440,7 +441,10 @@ void App::poll_extract() {
 }
 
 void App::start_search() {
-    if (searching_.load()) return;
+    if (searching_.load()) {
+        overlay_ = Overlay::Search;
+        return;
+    }
     if (search_thread_.joinable()) search_thread_.join();
 
     std::string query;
@@ -813,6 +817,7 @@ void App::handle_input(uint64_t now_ms) {
             }
 
             case Overlay::Search: {
+                if (searching_.load()) break;
                 const int count = static_cast<int>(results_.size());
                 if (count > 0 && next) results_cursor_ = (results_cursor_ + 1) % count;
                 if (count > 0 && prev) results_cursor_ = (results_cursor_ + count - 1) % count;
@@ -1612,7 +1617,7 @@ void App::draw_welcome() {
     for (const Row& row : rows) {
         render_.rounded_rect(left, y, width, 62, 12, palette::kSurface);
         int text_left = left + 24;
-        if (row.key[0] != ' ') {
+        if (row.key[0] != '\0') {
             render_.key_badge(FontSize::Body, row.key, left + 24, y + 18, palette::kAccent);
             text_left = left + 92;
         }
